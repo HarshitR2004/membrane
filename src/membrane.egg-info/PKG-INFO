@@ -1,0 +1,416 @@
+Metadata-Version: 2.4
+Name: membrane
+Version: 2.0.0
+Summary: Universal memory layer for AI agents — persistent, verifiable, and shareable via Walrus decentralized storage and MCP.
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: mcp<2,>=1.27
+Requires-Dist: aiosqlite>=0.20
+Requires-Dist: sentence-transformers>=3.0
+Requires-Dist: numpy>=1.26
+Requires-Dist: cryptography>=43
+Requires-Dist: pydantic>=2.0
+Requires-Dist: pydantic-settings>=2.0
+Requires-Dist: httpx>=0.27
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: uvicorn>=0.30.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+
+# Membrane
+
+**Universal memory layer for AI agents — persistent, verifiable, and shareable via Walrus decentralized storage and MCP.**
+
+Membrane provides persistent, semantically searchable, encrypted, and verifiable memory to any MCP-compatible AI application — Claude Desktop, Cursor, LangGraph agents, and more. All memory content is stored in [Walrus](https://walrus.xyz) decentralized storage with optional on-chain verification via [Sui](https://sui.io).
+
+---
+
+## Architecture
+
+```mermaid
+graph TD
+    A[AI Application<br/>Claude / Cursor / LangGraph] -->|MCP| B[MCP Layer<br/>FastMCP Server — 9 Tools]
+    B --> C[Memory Manager<br/>CRUD + Namespaces]
+    B --> D[Retrieval Engine<br/>Metadata-First Search]
+    B --> E[Artifact Manager<br/>File Storage]
+    B --> F[Security Engine<br/>Encryption + Verification]
+    C --> G[Walrus<br/>Canonical Storage]
+    C --> H[(SQLite<br/>Metadata Only)]
+    C --> I[Sui<br/>On-Chain Proofs]
+    D --> H
+    D --> G
+    E --> G
+    E --> H
+    F --> G
+    F --> I
+```
+
+### Layers
+
+| Layer            | Responsibility                                                                   |
+| -----------------| ---------------------------------------------------------------------------------|
+| **MCP**          | Exposes 9 tools, validates inputs, routes requests                               |
+| **Memory**       | CRUD operations, namespace/owner management, Walrus upload coordination           |
+| **Retrieval**    | Metadata-first filtering, optional semantic reranking (`all-MiniLM-L6-v2`)       |
+| **Artifact**     | Large content storage (PDFs, reports, datasets) in Walrus                        |
+| **Security**     | Fernet encryption, SHA-256 hashing, HMAC-SHA256 integrity, Sui proof verification|
+
+### Storage Architecture
+
+| Layer       | Role                          | Stores                                           |
+| ----------- | ----------------------------- | ------------------------------------------------ |
+| **Walrus**  | Canonical source of truth     | Memory content, artifacts, agent state            |
+| **SQLite**  | Local metadata index          | IDs, namespaces, owners, tags, blob IDs, hashes   |
+| **Sui**     | On-chain verification         | Content hash proofs, transaction references        |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- pip
+- Internet access (for Walrus testnet)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd membrane
+
+# Create a virtual environment
+python -m venv .venv
+
+# Activate it
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install Membrane and dependencies
+pip install -e .
+```
+
+### Configuration
+
+Copy the example environment file and edit as needed:
+
+```bash
+cp .env.example .env
+```
+
+Available settings:
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEMBRANE_DB_PATH` | `membrane.db` | Path to the SQLite metadata database |
+| `MEMBRANE_ENCRYPTION_KEY` | *(auto-generated)* | Fernet encryption key |
+| `MEMBRANE_HMAC_SECRET` | *(auto-generated)* | HMAC secret for integrity proofs |
+| `MEMBRANE_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformer model name |
+| `MEMBRANE_DEFAULT_RETRIEVAL_LIMIT` | `10` | Default search result count |
+| `MEMBRANE_TRANSPORT` | `stdio` | MCP transport: `stdio` or `sse` |
+| `MEMBRANE_WALRUS_PUBLISHER_URL` | *(testnet)* | Walrus publisher endpoint |
+| `MEMBRANE_WALRUS_AGGREGATOR_URL` | *(testnet)* | Walrus aggregator endpoint |
+| `MEMBRANE_WALRUS_STORAGE_EPOCHS` | `5` | Storage duration in epochs (~14 days each) |
+| `MEMBRANE_SUI_RPC_URL` | *(testnet)* | Sui fullnode JSON-RPC URL |
+| `MEMBRANE_SUI_WALLET_ADDRESS` | *(empty)* | Sui wallet for proofs (optional) |
+| `MEMBRANE_SUI_PRIVATE_KEY` | *(empty)* | Sui private key for signing (optional) |
+| `MEMBRANE_DEFAULT_OWNER` | `membrane-local` | Default owner identifier |
+| `MEMBRANE_DEFAULT_NAMESPACE` | `default` | Default memory namespace |
+
+On first run, missing `ENCRYPTION_KEY` and `HMAC_SECRET` are auto-generated and persisted to `.env`.
+
+Sui proofs are **optional** — when wallet credentials are not provided, Membrane operates without on-chain verification.
+
+### Running the Server
+
+```bash
+python -m membrane
+```
+
+Startup flow:
+```
+Load settings
+→ Auto-generate secrets if missing
+→ Initialize local metadata database
+→ Initialize Walrus client
+→ Initialize Sui client
+→ Build FastMCP server
+→ Register MCP tools
+→ Ready
+```
+
+---
+
+## MCP Tools Reference
+
+### `store_memory`
+
+Store a memory with Walrus persistence and optional Sui proof.
+
+| Parameter   | Type     | Required | Description                        |
+| ----------- | -------- | -------- | ---------------------------------- |
+| `content`   | string   | ✅       | Memory content                     |
+| `namespace` | string   | ❌       | Logical namespace (default: 'default') |
+| `owner`     | string   | ❌       | Owner identifier                   |
+| `tags`      | string[] | ❌       | Tags for filtering                 |
+| `metadata`  | object   | ❌       | Key-value metadata                 |
+| `encrypt`   | boolean  | ❌       | Encrypt content before storage     |
+
+**Returns:** `{ memory_id, walrus_blob_id, namespace, status }`
+
+---
+
+### `search_memory`
+
+Hybrid metadata-first search with optional semantic reranking.
+
+| Parameter   | Type     | Required | Description                     |
+| ----------- | -------- | -------- | ------------------------------- |
+| `query`     | string   | ✅       | Natural-language query          |
+| `namespace` | string   | ❌       | Filter by namespace             |
+| `owner`     | string   | ❌       | Filter by owner                 |
+| `tags`      | string[] | ❌       | Filter by tags                  |
+| `limit`     | integer  | ❌       | Max results (default: 10)       |
+
+**Returns:** `{ memories: [{ memory_id, content, namespace, owner, tags, relevance_score, walrus_blob_id }] }`
+
+---
+
+### `update_memory`
+
+Update an existing memory. Re-uploads to Walrus.
+
+| Parameter   | Type     | Required | Description            |
+| ----------- | -------- | -------- | ---------------------- |
+| `memory_id` | string   | ✅       | Memory UUID            |
+| `content`   | string   | ❌       | New content            |
+| `metadata`  | object   | ❌       | New metadata           |
+| `tags`      | string[] | ❌       | New tags               |
+| `namespace` | string   | ❌       | New namespace          |
+
+**Returns:** `{ memory_id, walrus_blob_id, status }`
+
+---
+
+### `delete_memory`
+
+Delete a memory's metadata and proof. Walrus blobs expire naturally.
+
+| Parameter   | Type   | Required | Description |
+| ----------- | ------ | -------- | ----------- |
+| `memory_id` | string | ✅       | Memory UUID |
+
+**Returns:** `{ status }`
+
+---
+
+### `verify_memory`
+
+Full multi-layer verification.
+
+| Parameter   | Type   | Required | Description |
+| ----------- | ------ | -------- | ----------- |
+| `memory_id` | string | ✅       | Memory UUID |
+
+**Proves:**
+- Memory exists in local metadata
+- Content hash matches stored hash
+- Content matches the Walrus blob
+- Sui on-chain proof exists (if configured)
+
+**Returns:** `{ memory_id, verified, content_hash_match, walrus_blob_exists, sui_proof_exists, message }`
+
+---
+
+### `store_artifact`
+
+Store a large artifact in Walrus.
+
+| Parameter      | Type     | Required | Description                |
+| -------------- | -------- | -------- | -------------------------- |
+| `content`      | string   | ✅       | Artifact body              |
+| `owner`        | string   | ❌       | Owner identifier           |
+| `filename`     | string   | ❌       | Original filename          |
+| `content_type` | string   | ❌       | MIME type                  |
+| `tags`         | string[] | ❌       | Tags for filtering         |
+| `metadata`     | object   | ❌       | Key-value metadata         |
+
+**Returns:** `{ artifact_id, walrus_blob_id, status }`
+
+---
+
+### `get_artifact`
+
+Retrieve an artifact from Walrus.
+
+| Parameter     | Type   | Required | Description    |
+| ------------- | ------ | -------- | -------------- |
+| `artifact_id` | string | ✅       | Artifact UUID  |
+
+**Returns:** `{ artifact_id, content, metadata, walrus_blob_id, owner, filename }`
+
+---
+
+### `list_memories`
+
+List memory metadata records.
+
+| Parameter   | Type   | Required | Description        |
+| ----------- | ------ | -------- | ------------------ |
+| `namespace` | string | ❌       | Filter by namespace|
+| `owner`     | string | ❌       | Filter by owner    |
+
+**Returns:** `{ memories: [...], total }`
+
+---
+
+### `list_artifacts`
+
+List artifact metadata records.
+
+| Parameter | Type   | Required | Description      |
+| --------- | ------ | -------- | ---------------- |
+| `owner`   | string | ❌       | Filter by owner  |
+
+**Returns:** `{ artifacts: [...], total }`
+
+---
+
+## Multi-Agent Memory Sharing
+
+Multiple MCP clients can connect to the same Membrane instance and share memories and artifacts:
+
+```
+Claude Desktop  ──→  Membrane  ──→  Walrus
+Cursor          ──→  Membrane  ──→  Walrus
+LangGraph       ──→  Membrane  ──→  Walrus
+```
+
+- Use **namespaces** to organize memories by agent or project
+- Use **owner** to track which agent created each memory
+- Use **tags** for cross-cutting categorization
+- All agents see the same underlying Walrus data
+
+---
+
+## Client Integration
+
+### Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "membrane": {
+      "command": "/path/to/membrane/.venv/bin/python",
+      "args": ["-m", "membrane"],
+      "env": {}
+    }
+  }
+}
+```
+*(On Windows, use `C:\\path\\to\\membrane\\.venv\\Scripts\\python.exe` with double backslashes)*
+
+### Cursor
+
+Add to Cursor under **Settings** -> **Features** -> **MCP**:
+- **Name**: `membrane`
+- **Type**: `command`
+- **Command**: `/path/to/membrane/.venv/bin/python -m membrane` (or absolute path to `.venv\Scripts\python.exe` on Windows)
+
+### MCP Inspector (Development)
+
+To test the server locally with the MCP Inspector GUI:
+
+On Windows:
+```bash
+npx -y @modelcontextprotocol/inspector .venv\Scripts\python.exe -m membrane
+```
+
+On macOS/Linux:
+```bash
+npx -y @modelcontextprotocol/inspector .venv/bin/python -m membrane
+```
+
+---
+
+## Development
+
+### Running Tests
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Skip slow tests (embedding model download)
+python -m pytest tests/ -v -m "not slow"
+```
+
+### Project Structure
+
+```
+membrane/
+├── pyproject.toml                    # Package definition
+├── .env.example                      # Configuration template
+├── README.md                         # This file
+├── src/
+│   └── membrane/
+│       ├── __init__.py               # Package version (2.0.0)
+│       ├── __main__.py               # Entry point with Walrus/Sui init
+│       ├── config.py                 # Settings (local + Walrus + Sui)
+│       ├── server.py                 # MCP server — 9 tools
+│       ├── db.py                     # SQLite metadata-only schema
+│       ├── models.py                 # Pydantic data models
+│       ├── walrus_client.py          # Walrus HTTP API client
+│       ├── sui_client.py             # Sui proof client
+│       ├── memory_manager.py         # Memory lifecycle orchestration
+│       ├── artifact_manager.py       # Artifact lifecycle orchestration
+│       ├── retrieval.py              # Metadata-first hybrid search
+│       └── security.py              # Encryption + hashing + verification
+└── tests/
+    ├── conftest.py                   # Shared fixtures (fake Walrus/Sui)
+    ├── test_walrus_client.py         # Walrus client tests
+    ├── test_sui_client.py            # Sui client tests
+    ├── test_memory_manager.py        # Memory lifecycle tests
+    ├── test_artifact_manager.py      # Artifact lifecycle tests
+    ├── test_retrieval.py             # Retrieval engine tests
+    ├── test_security.py              # Security layer tests
+    └── test_server.py                # End-to-end MCP tool tests
+```
+
+### Memory Object Format (stored in Walrus)
+
+```json
+{
+  "memory_id": "uuid",
+  "namespace": "research-agent",
+  "owner": "wallet-address",
+  "created_at": "2024-01-01T00:00:00+00:00",
+  "updated_at": "2024-01-01T00:00:00+00:00",
+  "type": "memory",
+  "content": "memory content here",
+  "metadata": {
+    "tags": ["research", "important"],
+    "source": "agent",
+    "extra": {}
+  }
+}
+```
+
+### SQLite Schema (metadata only)
+
+```sql
+-- No content column — content lives in Walrus
+memories (memory_id, namespace, owner, tags, timestamp, walrus_blob_id, content_hash, proof_id, embedding)
+artifacts (artifact_id, walrus_blob_id, owner, filename, content_type, tags, timestamp, content_hash)
+proofs (proof_id, sui_tx_hash, memory_id, content_hash, created_at)
+```

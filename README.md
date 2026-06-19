@@ -1,0 +1,88 @@
+# Membrane
+
+## The Problem
+
+AI agents operate entirely within ephemeral contexts. Once a conversation ends or a process terminates, the agent loses all knowledge of what was discussed, decided, or generated. 
+
+Furthermore, when agents do store memory, it is typically in centralized databases that lack cryptographically verifiable integrity. If an agent hallucinates or if the underlying database is tampered with, there is no mathematical proof of what the agent actually "remembered" originally. Finally, sharing these memories across a swarm of multi-agent systems is heavily siloed by the platform the agent runs on.
+
+## The Solution
+
+Membrane is a Model Context Protocol (MCP) server that provides AI agents with a persistent, verifiable memory layer. It functions as a database purpose-built for AI agents, but fundamentally alters where and how the data is stored:
+
+1. Content lives off-chain: Memory payloads are stored on Walrus, a decentralized blob storage network built on the Sui ecosystem.
+2. Integrity is provable: SHA-256 hashes combined with optional on-chain Sui proofs allow anyone to cryptographically verify that a memory has not been tampered with since its creation.
+
+By exposing a standardized set of MCP tools, any AI agent can connect to Membrane and immediately gain the ability to store, search, update, and cryptographically verify its memories.
+
+## High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph "AI Agent (Claude, GPT, etc.)"
+        A[MCP Client]
+    end
+
+    subgraph "Membrane MCP Server"
+        S[server.py<br/>14 MCP Tools]
+        MM[MemoryManager]
+        AM[ArtifactManager]
+        RE[RetrievalEngine]
+        SEC[Security Layer]
+        DB[(SQLite<br/>metadata only)]
+    end
+
+    subgraph "External Services"
+        W[Walrus<br/>Decentralized Blob Storage]
+        SUI[Sui Blockchain<br/>Proof Verification]
+    end
+
+    A <-->|MCP Protocol| S
+    S --> MM
+    S --> AM
+    S --> RE
+    MM --> SEC
+    MM --> DB
+    MM --> W
+    MM --> SUI
+    AM --> DB
+    AM --> W
+    RE --> DB
+    RE --> W
+    SEC --> DB
+```
+
+## Component Breakdown
+
+### Core Storage Layers
+
+Membrane splits storage responsibilities across three distinct layers to optimize for speed, cost, and security:
+
+1. Walrus (Canonical Storage): Stores the actual heavy payload content, such as memory text, large artifacts, and agent states.
+2. SQLite (Metadata Index): Stores lightweight metadata locally, including namespace, owner, tags, blob pointers, and 384-dimensional semantic embeddings. This allows for instant retrieval and filtering without waiting on decentralized networks.
+3. Sui (Verification Layer): Stores content hash proofs and transaction references directly on-chain, proving exactly when a memory was created and what its hash was.
+
+### The Memory Manager
+
+The core orchestrator of Membrane is the Memory Manager, which coordinates the lifecycle of a memory across all three storage layers. When an agent requests to store a memory:
+1. The memory is hashed and optionally encrypted using Fernet (AES-CBC + HMAC-SHA256).
+2. The payload is uploaded to the Walrus network, returning a unique blob ID.
+3. The metadata, semantic embedding, and blob pointer are saved to the local SQLite index.
+4. A transaction is sent to the Sui blockchain to record the cryptographic proof.
+
+### Retrieval Engine
+
+Membrane implements a hybrid search approach for memory recall. When an agent queries its memory, the system first filters locally using the SQLite index (matching by namespace, owner, or tags). If there are multiple candidates, it performs a semantic reranking using cosine similarity on the stored vector embeddings. Only after finding the most relevant metadata does Membrane reach out to Walrus to fetch the heavy content payloads.
+
+### Security and Verification
+
+The security layer manages cryptography and integrity verification. The verification chain runs a strict five-step process:
+1. Parses the Walrus blob payload.
+2. Decrypts the content if it was encrypted.
+3. Recomputes the SHA-256 hash and compares it to the stored hash.
+4. Checks the HMAC proof against the local database.
+5. Verifies the Sui on-chain transaction.
+
+### Multi-Agent Memory Sharing
+
+Because the architecture decouples the storage layer from the agent runtime, multiple independent agents can connect to the same Membrane instance and share contexts. Agents can segment their data using namespaces, track provenance via owner identifiers, and categorize cross-cutting concepts with tags, all while relying on the same underlying decentralized Walrus dataset.

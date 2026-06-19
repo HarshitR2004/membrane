@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-border: var(--border);
+  --font-sans: var(--font-unbounded), sans-serif;
+  --font-mono: var(--font-plex-mono), monospace;
+}
+
+:root {
+  --background: #0A0A0C; /* Deep Obsidian */
+  --foreground: #F8F9FA; /* Crisp Off-White */
+  --primary: #DFFF00; /* Electric Chartreuse */
+  --secondary: #8B8D98; /* Muted Slate */
+  --accent: #FF3366; /* Harsh Red for destructive actions */
+  --card: #111114; /* Slightly lighter than bg */
+  --card-hover: #1A1A1E;
+  --border: #27272A; /* Crisp borders */
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  overflow-x: hidden;
+  /* Monolithic Grid Pattern */
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-attachment: fixed;
+}
+
+/* Brutalist Utilities */
+.brutalist-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  /* Sharp drop shadow */
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.5);
+}
+
+.brutalist-card:hover {
+  background: var(--card-hover);
+  border-color: var(--primary);
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 0 rgba(223, 255, 0, 0.15); /* Subtle chartreuse block shadow */
+}
+
+.brutalist-input {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  transition: all 0.2s ease;
+  border-radius: 0;
+  padding: 0.75rem 1rem;
+}
+
+.brutalist-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 2px 2px 0 0 rgba(223, 255, 0, 0.3);
+}
+
+.brutalist-button {
+  background: var(--foreground);
+  color: var(--background);
+  border: 1px solid var(--foreground);
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  padding: 0.75rem 1.5rem;
+  transition: all 0.2s ease;
+  box-shadow: 3px 3px 0 0 rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+}
+
+.brutalist-button:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 0 var(--primary);
+}
+
+.brutalist-button-primary {
+  background: var(--primary);
+  color: var(--background);
+  border: 1px solid var(--primary);
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  padding: 0.75rem 1.5rem;
+  transition: all 0.2s ease;
+  box-shadow: 3px 3px 0 0 rgba(223, 255, 0, 0.3);
+  cursor: pointer;
+}
+
+.brutalist-button-primary:hover:not(:disabled) {
+  background: #E8FF33;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 0 rgba(223, 255, 0, 0.5);
+}
+
+.brutalist-button-secondary {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  padding: 0.75rem 1.5rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.brutalist-button-secondary:hover:not(:disabled) {
+  background: var(--card-hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Base Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+/* Hardware/Stat Readout */
+.stat-readout {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  letter-spacing: -0.05em;
+}
+
+/* Animations */
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+.animate-delay-100 { animation-delay: 100ms; }
+.animate-delay-200 { animation-delay: 200ms; }
+.animate-delay-300 { animation-delay: 300ms; }
+.animate-delay-400 { animation-delay: 400ms; }
+.animate-delay-500 { animation-delay: 500ms; }

@@ -1,0 +1,2 @@
+[console_scripts]
+membrane = membrane.__main__:main
