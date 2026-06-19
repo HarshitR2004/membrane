@@ -143,3 +143,53 @@ def create_app(
         Mount("/mcp/{username}", app=router)
     )
     return app
+
+
+def create_asgi_app() -> FastAPI:
+    """Zero-argument ASGI factory for Render/Gunicorn/Uvicorn.
+    
+    Usage: uvicorn membrane.app:create_asgi_app --factory
+    """
+    import asyncio
+    from membrane.config import load_settings
+    from membrane.db import init_db
+    from membrane.walrus_client import WalrusClient
+    from membrane.sui_client import SuiClient
+    from membrane.memory_manager import MemoryManager
+    from membrane.artifact_manager import ArtifactManager
+    from membrane.retrieval import EmbeddingEngine, RetrievalEngine
+
+    settings = load_settings()
+
+    # Initialize DB synchronously (safe at startup before serving traffic)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(init_db(settings.db_path))
+    except RuntimeError:
+        asyncio.run(init_db(settings.db_path))
+
+    walrus = WalrusClient(
+        publisher_url=settings.walrus_publisher_url,
+        aggregator_url=settings.walrus_aggregator_url,
+        epochs=settings.walrus_storage_epochs,
+    )
+    sui = SuiClient(
+        rpc_url=settings.sui_rpc_url,
+        wallet_address=settings.sui_wallet_address,
+        private_key=settings.sui_private_key,
+        proof_package_id=settings.sui_proof_package_id,
+    )
+    
+    memory_manager = MemoryManager(walrus, sui, settings)
+    artifact_manager = ArtifactManager(walrus, settings)
+    embedding_engine = EmbeddingEngine(model_name=settings.embedding_model)
+    retrieval_engine = RetrievalEngine(embedding_engine)
+
+    return create_app(
+        settings=settings,
+        walrus=walrus,
+        sui=sui,
+        memory_manager=memory_manager,
+        artifact_manager=artifact_manager,
+        retrieval_engine=retrieval_engine,
+    )

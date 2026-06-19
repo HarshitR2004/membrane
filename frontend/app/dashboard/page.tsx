@@ -62,7 +62,7 @@ export default function DashboardOverview() {
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoadingAction("");
+      setLoadingAction(null);
     }
   };
 
@@ -79,7 +79,7 @@ export default function DashboardOverview() {
     } catch (err: any) {
       alert(err.message);
     } finally {
-      setLoadingAction("");
+      setLoadingAction(null);
     }
   };
 
