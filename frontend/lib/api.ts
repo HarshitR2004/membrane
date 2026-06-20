@@ -1,4 +1,5 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const envUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+export const API_BASE = envUrl.endsWith('/api') ? envUrl : `${envUrl.replace(/\/+$/, '')}/api`;
 
 export function getApiKey(): string | null {
   if (typeof window === "undefined") return null;

@@ -43,6 +43,7 @@ def build_user_server(
     """Build and return a FastMCP server scoped to the given UserContext."""
     mcp = FastMCP(
         f"Membrane-{context.username}",
+        host="0.0.0.0",
         instructions=(
             f"Universal memory layer for AI agents (User: {context.username}) "
             "— store, search, and verify memories via MCP. All content is "
