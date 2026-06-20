@@ -24,38 +24,41 @@ if TYPE_CHECKING:
 
     from membrane.models import MemoryRecord
     from membrane.walrus_client import WalrusClient
-    from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingEngine:
-    """Lazy-loading wrapper around a SentenceTransformer model."""
+    """Lazy-loading wrapper around a FastEmbed TextEmbedding model."""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         self._model_name = model_name
-        self._model: SentenceTransformer | None = None
+        self._model: Any | None = None
 
-    def _load_model(self) -> SentenceTransformer:
+    def _load_model(self) -> Any:
         """Load the model on first use."""
         if self._model is None:
-            from sentence_transformers import SentenceTransformer as ST
+            from fastembed import TextEmbedding
 
-            logger.info("Loading embedding model: %s", self._model_name)
-            self._model = ST(self._model_name)
+            model_name = self._model_name
+            if model_name == "all-MiniLM-L6-v2":
+                model_name = "sentence-transformers/all-MiniLM-L6-v2"
+
+            logger.info("Loading embedding model: %s", model_name)
+            self._model = TextEmbedding(model_name)
             logger.info("Embedding model loaded.")
         return self._model
 
     def encode(self, text: str) -> np.ndarray:
-        """Encode a text string into a dense vector (384-dim for MiniLM).
+        """Encode a text string into a dense vector.
 
         Returns:
             1-D numpy array of float32 values.
         """
         model = self._load_model()
-        # encode() returns ndarray of shape (dim,) for a single string
-        embedding: np.ndarray = model.encode(text, convert_to_numpy=True)
-        return embedding.astype(np.float32)
+        # embed() returns an iterable of numpy arrays
+        embeddings = list(model.embed([text]))
+        return embeddings[0].astype(np.float32)
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
