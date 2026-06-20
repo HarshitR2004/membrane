@@ -1,21 +1,19 @@
-# Membrane
+# <p align="center">Membrane</p>
 
-## The Problem
+<p align="center">
 
-AI agents operate entirely within ephemeral contexts. Once a conversation ends or a process terminates, the agent loses all knowledge of what was discussed, decided, or generated. 
+<img src="./assets/logo.png" width="180"/>
 
-Furthermore, when agents do store memory, it is typically in centralized databases that lack cryptographically verifiable integrity. If an agent hallucinates or if the underlying database is tampered with, there is no mathematical proof of what the agent actually "remembered" originally. Finally, sharing these memories across a swarm of multi-agent systems is heavily siloed by the platform the agent runs on.
+### Universal, Persistent & Verifiable Memory Infrastructure for AI Agents
 
-## The Solution
+### **The Memory Layer for the Agent Ecosystem**
 
-Membrane is a Model Context Protocol (MCP) server that provides AI agents with a persistent, verifiable memory layer. It functions as a database purpose-built for AI agents, but fundamentally alters where and how the data is stored:
+Built for **Sui Overflow 2026**
 
-1. Content lives off-chain: Memory payloads are stored on Walrus, a decentralized blob storage network built on the Sui ecosystem.
-2. Integrity is provable: SHA-256 hashes combined with optional on-chain Sui proofs allow anyone to cryptographically verify that a memory has not been tampered with since its creation.
+</p>
 
-By exposing a standardized set of MCP tools, any AI agent can connect to Membrane and immediately gain the ability to store, search, update, and cryptographically verify its memories.
 
-## High-Level Architecture
+<p align="center">
 
 ```mermaid
 graph TB
@@ -52,37 +50,401 @@ graph TB
     SEC --> DB
 ```
 
-## Component Breakdown
+</p>
 
-### Core Storage Layers
 
-Membrane splits storage responsibilities across three distinct layers to optimize for speed, cost, and security:
+# Problem
 
-1. Walrus (Canonical Storage): Stores the actual heavy payload content, such as memory text, large artifacts, and agent states.
-2. PostgreSQL (Metadata Index): Stores lightweight metadata locally, including namespace, owner, tags, blob pointers, and 384-dimensional semantic embeddings. This allows for instant retrieval and filtering without waiting on decentralized networks.
-3. Sui (Verification Layer): Stores content hash proofs and transaction references directly on-chain, proving exactly when a memory was created and what its hash was.
+AI agents today operate with fragmented and ephemeral memory systems.
 
-### The Memory Manager
+Each framework implements memory differently.
 
-The core orchestrator of Membrane is the Memory Manager, which coordinates the lifecycle of a memory across all three storage layers. When an agent requests to store a memory:
-1. The memory is hashed and optionally encrypted using Fernet (AES-CBC + HMAC-SHA256).
-2. The payload is uploaded to the Walrus network, returning a unique blob ID.
-3. The metadata, semantic embedding, and blob pointer are saved to the local PostgreSQL index.
-4. A transaction is sent to the Sui blockchain to record the cryptographic proof.
+| Framework      | Memory          |
+| -------------- | --------------- |
+| Claude Desktop | Session Context |
+| OpenAI Agents  | Threads         |
+| LangGraph      | Checkpointers   |
+| CrewAI         | Internal State  |
+| Custom Agents  | Reinvented      |
 
-### Retrieval Engine
+As a result:
 
-Membrane implements a hybrid search approach for memory recall. When an agent queries its memory, the system first filters locally using the PostgreSQL index (matching by namespace, owner, or tags). If there are multiple candidates, it performs a semantic reranking using cosine similarity on the stored vector embeddings. Only after finding the most relevant metadata does Membrane reach out to Walrus to fetch the heavy content payloads.
+* Agents forget information after conversations end
+* Long-term context is difficult to maintain
+* Cross-agent collaboration is fragmented
+* Memory systems are repeatedly rebuilt
+* Stored memories cannot be independently verified
 
-### Security and Verification
+Memory remains an application feature.
 
-The security layer manages cryptography and integrity verification. The verification chain runs a strict five-step process:
-1. Parses the Walrus blob payload.
-2. Decrypts the content if it was encrypted.
-3. Recomputes the SHA-256 hash and compares it to the stored hash.
-4. Checks the HMAC proof against the local database.
-5. Verifies the Sui on-chain transaction.
+We believe memory should be infrastructure.
 
-### Multi-Agent Memory Sharing
 
-Because the architecture decouples the storage layer from the agent runtime, multiple independent agents can connect to the same Membrane instance and share contexts. Agents can segment their data using namespaces, track provenance via owner identifiers, and categorize cross-cutting concepts with tags, all while relying on the same underlying decentralized Walrus dataset.
+# Solution
+
+Membrane is a decentralized memory layer exposed through the **Model Context Protocol (MCP).**
+
+Any MCP-compatible agent can connect to Membrane and immediately gain:
+
+✅ Persistent memory
+
+✅ Semantic retrieval
+
+✅ Artifact storage
+
+✅ Encryption
+
+✅ Cryptographic verification
+
+✅ Shared memory spaces
+
+✅ On-chain provenance
+
+Instead of implementing memory independently, agents interact with a standardized memory service.
+
+```text
+Claude
+   │
+   ▼
+Membrane
+   ▲
+   │
+Cursor
+
+
+LangGraph
+   │
+   ▼
+Membrane
+   ▲
+   │
+GPT
+```
+
+One Memory Layer.
+
+Many Agents.
+
+Zero Lock-In.
+
+
+# Why Sui?
+
+Membrane uses Sui because verifiable memory requires immutable proofs.
+
+Each stored memory can optionally produce:
+
+* SHA256 digest
+* Timestamped proof
+* Transaction record
+* Provenance metadata
+
+This enables:
+
+* Tamper detection
+* Auditable histories
+* Trustless verification
+* Memory provenance
+
+
+# Why Walrus?
+
+AI memories are fundamentally blob-oriented.
+
+Examples:
+
+* Conversations
+* PDFs
+* Images
+* Logs
+* Workflow checkpoints
+* Agent outputs
+
+Walrus provides:
+
+* Decentralized storage
+* Blob-native architecture
+* Cost efficiency
+* Scalability
+
+Membrane stores heavy payloads entirely on Walrus.
+
+PostgreSQL only indexes metadata.
+
+
+# Architecture
+
+Membrane separates storage into three independent layers.
+
+## Walrus
+
+Canonical memory storage
+
+Stores:
+
+* Memory payloads
+* Documents
+* Artifacts
+* Agent state
+
+
+## PostgreSQL
+
+Fast metadata index
+
+Stores:
+
+* Tags
+* Owners
+* Namespaces
+* Embeddings
+* Blob pointers
+* Visibility rules
+
+No memory content is stored locally.
+
+
+## Sui
+
+Verification layer
+
+Stores:
+
+* Content hashes
+* Transaction references
+* Proof metadata
+
+Enables cryptographic verification.
+
+
+# Hybrid Retrieval Engine
+
+Membrane combines two retrieval strategies.
+
+### Metadata Filtering
+
+Filter by:
+
+* Namespace
+* Owner
+* Visibility
+* Tags
+
+
+### Semantic Search
+
+Embedding Model
+
+```python
+all-MiniLM-L6-v2
+```
+
+Produces:
+
+384-dimensional embeddings
+
+Ranking:
+
+Cosine Similarity
+
+
+# Security
+
+## Encryption
+
+Optional Fernet encryption
+
+AES-CBC
+
+*
+
+HMAC-SHA256
+
+
+## Verification
+
+Five-step integrity pipeline
+
+1. Fetch blob
+
+2. Decrypt content
+
+3. Recompute SHA256
+
+4. Verify HMAC
+
+5. Verify Sui proof
+
+
+# Features
+
+### Persistent Agent Memory
+
+Store memories beyond conversations.
+
+
+### Semantic Recall
+
+Hybrid search with embeddings.
+
+
+### Artifact Storage
+
+PDFs
+
+Images
+
+Logs
+
+Workflows
+
+
+### Memory Verification
+
+Detect tampering cryptographically.
+
+
+### Shared Agent Context
+
+Namespaces enable multi-agent collaboration.
+
+
+### Optional Encryption
+
+Sensitive memories remain private.
+
+
+# MCP Tools
+
+Membrane exposes **14 MCP tools**.
+
+### Memory
+
+* store_memory
+* search_memory
+* update_memory
+* delete_memory
+* verify_memory
+
+
+### Artifacts
+
+* store_artifact
+* get_artifact
+* list_artifacts
+
+
+### Inspection
+
+* inspect_memory
+* show_graph
+* list_agents
+* list_workflows
+* verify_blob
+
+
+# Demo
+
+## Example
+
+Agent:
+
+```python
+store_memory(
+content="Meeting with team tomorrow",
+tags=["calendar"]
+)
+```
+
+Later:
+
+```python
+search_memory(
+query="When is my team meeting?"
+)
+```
+
+Result:
+
+```text
+Meeting with team tomorrow
+```
+
+Verified.
+
+Persistent.
+
+Searchable.
+
+
+# Project Structure
+
+```text
+membrane/
+
+├── server.py
+├── memory_manager.py
+├── artifact_manager.py
+├── retrieval.py
+├── security.py
+├── walrus_client.py
+├── sui_client.py
+├── db.py
+├── models.py
+├── config.py
+└── tests/
+```
+
+
+# Roadmap
+
+### Completed
+
+* MCP Server
+* Walrus Integration
+* Hybrid Search
+* Encryption
+* Artifact Storage
+* Proof Verification
+
+### In Progress
+
+* Sponsored Transactions
+
+* Hosted Multi-Tenant MCP Endpoints
+
+* Memory Graph UI
+
+### Future
+
+* Agent Reputation
+
+* Access Policies
+
+* Memory Marketplace
+
+
+# Vision
+
+Models became APIs.
+
+Payments became Stripe.
+
+Storage became S3.
+
+Identity became OAuth.
+
+We believe memory should become infrastructure.
+
+Membrane aims to become the universal memory layer powering the next generation of AI agents.
+
+
+<p align="center">
+
+## Memory should persist.
+
+## Memory should be portable.
+
+## Memory should be verifiable.
+
+</p>
