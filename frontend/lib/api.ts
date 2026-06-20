@@ -38,7 +38,10 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   }
   headers.set("Content-Type", "application/json");
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const cleanBase = API_BASE.replace(/\/+$/, '');
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  
+  const res = await fetch(`${cleanBase}${cleanEndpoint}`, {
     ...options,
     headers,
   });
