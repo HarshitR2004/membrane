@@ -41,8 +41,8 @@ def main() -> None:
     settings = load_settings()
 
     # 2. Initialize local metadata database
-    logger.info("Initializing metadata database at: %s", settings.db_path)
-    asyncio.run(init_db(settings.db_path))
+    logger.info("Initializing metadata database at: %s", settings.database_url)
+    asyncio.run(init_db(settings.database_url))
 
     # 3. Initialize Walrus client
     from membrane.walrus_client import WalrusClient

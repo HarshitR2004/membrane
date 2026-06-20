@@ -54,7 +54,7 @@ class MultiTenantMCPRouter:
         if username in self._app_cache:
             return self._app_cache[username]
 
-        db = await get_db(self.settings.db_path)
+        db = await get_db(self.settings.database_url)
         try:
             user = await get_user(db, username)
             if not user:
@@ -164,9 +164,9 @@ def create_asgi_app() -> FastAPI:
     # Initialize DB synchronously (safe at startup before serving traffic)
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(init_db(settings.db_path))
+        loop.create_task(init_db(settings.database_url))
     except RuntimeError:
-        asyncio.run(init_db(settings.db_path))
+        asyncio.run(init_db(settings.database_url))
 
     walrus = WalrusClient(
         publisher_url=settings.walrus_publisher_url,
