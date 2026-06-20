@@ -1,7 +1,7 @@
 """Hybrid retrieval engine — metadata-first, semantic-second.
 
 The retrieval strategy is:
-  1. **Metadata filtering** — filter by namespace, owner, tags in SQLite.
+  1. **Metadata filtering** — filter by namespace, owner, tags in PostgreSQL.
   2. **Candidate selection** — return all matching rows (with embeddings).
   3. **Semantic reranking** — if more candidates than ``limit``, rerank
      by cosine similarity to the query embedding.
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
-    import aiosqlite
+    import asyncpg
 
     from membrane.models import MemoryRecord
     from membrane.walrus_client import WalrusClient
@@ -123,7 +123,7 @@ class RetrievalEngine:
 
     async def search(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         walrus: WalrusClient,
         query: str,
         namespace: str | None = None,
@@ -135,7 +135,7 @@ class RetrievalEngine:
     ) -> list[dict[str, Any]]:
         """Execute a hybrid search: metadata-first, semantic-second.
 
-        1. Filter by namespace/owner/tags in SQLite.
+        1. Filter by namespace/owner/tags in PostgreSQL.
         2. If more candidates than ``limit``, rerank with embeddings.
         3. Fetch Walrus content for top results.
         4. Return enriched results.
@@ -165,21 +165,20 @@ class RetrievalEngine:
 
         if top_k_ids:
             # Query neighbors
-            placeholders = ",".join("?" * len(top_k_ids))
+            placeholders1 = ",".join(f"${i+1}" for i in range(len(top_k_ids)))
+            placeholders2 = ",".join(f"${i+1+len(top_k_ids)}" for i in range(len(top_k_ids)))
             neighbor_query = f"""
-                SELECT DISTINCT target_id as neighbor_id FROM memory_relations WHERE source_id IN ({placeholders})
+                SELECT DISTINCT target_id as neighbor_id FROM memory_relations WHERE source_id IN ({placeholders1})
                 UNION
-                SELECT DISTINCT source_id as neighbor_id FROM memory_relations WHERE target_id IN ({placeholders})
+                SELECT DISTINCT source_id as neighbor_id FROM memory_relations WHERE target_id IN ({placeholders2})
             """
-            cursor = await db.execute(neighbor_query, top_k_ids * 2)
-            neighbor_rows = await cursor.fetchall()
+            neighbor_rows = await db.fetch(neighbor_query, *(top_k_ids * 2))
             neighbor_ids = [row["neighbor_id"] for row in neighbor_rows if row["neighbor_id"] not in expanded_candidates_map]
 
             if neighbor_ids:
                 # Fetch neighbor records
-                n_placeholders = ",".join("?" * len(neighbor_ids))
-                cursor = await db.execute(f"SELECT * FROM memories WHERE memory_id IN ({n_placeholders})", neighbor_ids)
-                n_rows = await cursor.fetchall()
+                n_placeholders = ",".join(f"${i+1}" for i in range(len(neighbor_ids)))
+                n_rows = await db.fetch(f"SELECT * FROM memories WHERE memory_id IN ({n_placeholders})", *neighbor_ids)
                 
                 from membrane.memory_manager import _bytes_to_embedding
                 from membrane.models import MemoryRecord
@@ -257,13 +256,13 @@ class RetrievalEngine:
 
     async def _metadata_filter(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         namespace: str | None = None,
         owner: str | None = None,
         allowed_user: str | None = None,
         tags: list[str] | None = None,
     ) -> list[MemoryRecord]:
-        """Query SQLite for candidate memory records."""
+        """Query PostgreSQL for candidate memory records."""
         from membrane.memory_manager import MemoryManager, _bytes_to_embedding
         from membrane.models import MemoryRecord
 
@@ -271,24 +270,23 @@ class RetrievalEngine:
         params: list[Any] = []
 
         if namespace:
-            query += " AND namespace = ?"
             params.append(namespace)
+            query += f" AND namespace = ${len(params)}"
         if owner and allowed_user:
-            query += " AND (owner = ? OR allowed_users LIKE ?)"
             params.extend([owner, f'%"{allowed_user}"%'])
+            query += f" AND (owner = ${len(params)-1} OR allowed_users LIKE ${len(params)})"
         elif owner:
-            query += " AND owner = ?"
             params.append(owner)
+            query += f" AND owner = ${len(params)}"
         elif allowed_user:
-            query += " AND allowed_users LIKE ?"
             params.append(f'%"{allowed_user}"%')
+            query += f" AND allowed_users LIKE ${len(params)}"
         if tags:
             for tag in tags:
-                query += " AND tags LIKE ?"
                 params.append(f'%"{tag}"%')
+                query += f" AND tags LIKE ${len(params)}"
 
-        cursor = await db.execute(query, params)
-        rows = await cursor.fetchall()
+        rows = await db.fetch(query, *params)
 
         records: list[MemoryRecord] = []
         for row in rows:

@@ -1,8 +1,8 @@
 """Memory Manager — orchestrates the full memory lifecycle.
 
-Coordinates Walrus uploads, SQLite metadata writes, Sui proof recording,
+Coordinates Walrus uploads, PostgreSQL metadata writes, Sui proof recording,
 and background embedding generation.  This replaces the old ``memory.py``
-module which stored content directly in SQLite.
+module which stored content directly in PostgreSQL.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import aiosqlite
+import asyncpg
 import numpy as np
 
 from membrane.config import MembraneSettings
@@ -46,7 +46,7 @@ def _now_iso() -> str:
 
 
 def _embedding_to_bytes(embedding: list[float] | np.ndarray) -> bytes:
-    """Serialize a float vector to raw bytes for BLOB storage."""
+    """Serialize a float vector to raw bytes for BYTEA storage."""
     return np.array(embedding, dtype=np.float32).tobytes()
 
 
@@ -65,11 +65,11 @@ class MemoryManager:
       4. Serialise payload → bytes
       5. Upload to Walrus → ``blob_id``
       6. Record proof on Sui (best-effort)
-      7. Save metadata row in SQLite (no content)
+      7. Save metadata row in PostgreSQL (no content)
       8. Return result
 
     Read flow:
-      1. Look up metadata in SQLite
+      1. Look up metadata in PostgreSQL
       2. Fetch blob from Walrus using ``walrus_blob_id``
       3. Deserialise JSON payload
       4. Optionally decrypt content
@@ -92,7 +92,7 @@ class MemoryManager:
 
     async def store(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         content: str,
         namespace: str | None = None,
         owner: str | None = None,
@@ -104,7 +104,7 @@ class MemoryManager:
         relations: list[dict[str, str]] | None = None,
         encrypt: bool = False,
     ) -> StoreMemoryResult:
-        """Store a new memory in Walrus with metadata in SQLite."""
+        """Store a new memory in Walrus with metadata in PostgreSQL."""
         memory_id = str(uuid.uuid4())
         now = _now_iso()
         ns = namespace or self._settings.default_namespace
@@ -148,7 +148,7 @@ class MemoryManager:
         walrus_result = await self._walrus.store_blob(payload_bytes)
         blob_id = walrus_result.blob_id
 
-        # 5. Save metadata in SQLite first (no content!)
+        # 5. Save metadata in PostgreSQL first (no content!)
         #    Must happen before proof insertion due to FK constraint.
         proof_id: str | None = None
         await db.execute(
@@ -156,18 +156,16 @@ class MemoryManager:
             INSERT INTO memories
                 (memory_id, namespace, owner, visibility, allowed_agents, allowed_users, tags, timestamp,
                  walrus_blob_id, content_hash, proof_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             """,
-            (
-                memory_id, ns, own, visibility, json.dumps(allowed_agents_list), json.dumps(allowed_users_list), json.dumps(tag_list), now,
-                blob_id, content_hash, proof_id,
-            ),
+            memory_id, ns, own, visibility, json.dumps(allowed_agents_list), json.dumps(allowed_users_list), json.dumps(tag_list), now,
+            blob_id, content_hash, proof_id
         )
 
         for rel in rel_list:
             await db.execute(
-                "INSERT INTO memory_relations (source_id, target_id, relation_type) VALUES (?, ?, ?)",
-                (memory_id, rel.target_id, rel.type),
+                "INSERT INTO memory_relations (source_id, target_id, relation_type) VALUES ($1, $2, $3)",
+                memory_id, rel.target_id, rel.type
             )
 
         # 6. Record proof on Sui (best-effort)
@@ -188,11 +186,9 @@ class MemoryManager:
                 )
                 # Update the memory row with the proof_id
                 await db.execute(
-                    "UPDATE memories SET proof_id = ? WHERE memory_id = ?",
-                    (proof_id, memory_id),
+                    "UPDATE memories SET proof_id = $1 WHERE memory_id = $2",
+                    proof_id, memory_id
                 )
-
-        await db.commit()
 
         logger.info(
             "Memory stored: id=%s blob=%s namespace=%s",
@@ -212,15 +208,14 @@ class MemoryManager:
 
     async def get(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
     ) -> dict[str, Any] | None:
         """Retrieve a memory by ID — fetches content from Walrus."""
-        # 1. Metadata from SQLite
-        cursor = await db.execute(
-            "SELECT * FROM memories WHERE memory_id = ?", (memory_id,)
+        # 1. Metadata from PostgreSQL
+        row = await db.fetchrow(
+            "SELECT * FROM memories WHERE memory_id = $1", memory_id
         )
-        row = await cursor.fetchone()
         if row is None:
             return None
 
@@ -267,9 +262,9 @@ class MemoryManager:
             "is_encrypted": is_encrypted,
             "created_at": payload.get("created_at", record.timestamp),
             "updated_at": payload.get("updated_at", record.timestamp),
-            "visibility": getattr(record, "visibility", "private"),
-            "allowed_agents": json.loads(getattr(record, "allowed_agents", "[]")),
-            "allowed_users": json.loads(getattr(record, "allowed_users", "[]")),
+            "visibility": dict(row).get("visibility", "private"),
+            "allowed_agents": json.loads(dict(row).get("allowed_agents", "[]")),
+            "allowed_users": json.loads(dict(row).get("allowed_users", "[]")),
         }
 
     # ------------------------------------------------------------------
@@ -278,7 +273,7 @@ class MemoryManager:
 
     async def update(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -291,10 +286,9 @@ class MemoryManager:
     ) -> dict[str, Any]:
         """Update an existing memory — re-uploads to Walrus."""
         # 1. Get current metadata
-        cursor = await db.execute(
-            "SELECT * FROM memories WHERE memory_id = ?", (memory_id,)
+        row = await db.fetchrow(
+            "SELECT * FROM memories WHERE memory_id = $1", memory_id
         )
-        row = await cursor.fetchone()
         if row is None:
             return {"error": f"Memory '{memory_id}' not found."}
 
@@ -336,13 +330,13 @@ class MemoryManager:
 
         new_ns = namespace or record.namespace
         new_tags = tags if tags is not None else json.loads(record.tags)
-        new_visibility = visibility if visibility is not None else getattr(record, "visibility", "private")
+        new_visibility = visibility if visibility is not None else dict(row).get("visibility", "private")
         
         if allowed_agents is not None:
             new_allowed_agents = allowed_agents
         else:
             try:
-                new_allowed_agents = json.loads(getattr(record, "allowed_agents", "[]"))
+                new_allowed_agents = json.loads(dict(row).get("allowed_agents", "[]"))
             except Exception:
                 new_allowed_agents = []
 
@@ -350,7 +344,7 @@ class MemoryManager:
             new_allowed_users = allowed_users
         else:
             try:
-                new_allowed_users = json.loads(getattr(record, "allowed_users", "[]"))
+                new_allowed_users = json.loads(dict(row).get("allowed_users", "[]"))
             except Exception:
                 new_allowed_users = []
 
@@ -412,28 +406,25 @@ class MemoryManager:
                     content_hash=new_content_hash,
                 )
 
-        # 7. Update metadata in SQLite
+        # 7. Update metadata in PostgreSQL
         await db.execute(
             """
             UPDATE memories SET
-                namespace = ?, visibility = ?, allowed_agents = ?, allowed_users = ?, tags = ?, walrus_blob_id = ?,
-                content_hash = ?, proof_id = ?, timestamp = ?
-            WHERE memory_id = ?
+                namespace = $1, visibility = $2, allowed_agents = $3, allowed_users = $4, tags = $5, walrus_blob_id = $6,
+                content_hash = $7, proof_id = $8, timestamp = $9
+            WHERE memory_id = $10
             """,
-            (
-                new_ns, new_visibility, json.dumps(new_allowed_agents), json.dumps(new_allowed_users), json.dumps(new_tags), new_blob_id,
-                new_content_hash, proof_id, now, memory_id,
-            ),
+            new_ns, new_visibility, json.dumps(new_allowed_agents), json.dumps(new_allowed_users), json.dumps(new_tags), new_blob_id,
+            new_content_hash, proof_id, now, memory_id
         )
 
         if relations is not None:
-            await db.execute("DELETE FROM memory_relations WHERE source_id = ?", (memory_id,))
+            await db.execute("DELETE FROM memory_relations WHERE source_id = $1", memory_id)
             for rel in new_relations:
                 await db.execute(
-                    "INSERT INTO memory_relations (source_id, target_id, relation_type) VALUES (?, ?, ?)",
-                    (memory_id, rel.target_id, rel.type),
+                    "INSERT INTO memory_relations (source_id, target_id, relation_type) VALUES ($1, $2, $3)",
+                    memory_id, rel.target_id, rel.type
                 )
-        await db.commit()
 
         return {
             "memory_id": memory_id,
@@ -447,14 +438,13 @@ class MemoryManager:
 
     async def delete(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
     ) -> dict[str, Any]:
         """Delete a memory's metadata and proof. Walrus blobs expire naturally."""
-        cursor = await db.execute(
-            "SELECT memory_id FROM memories WHERE memory_id = ?", (memory_id,)
+        row = await db.fetchrow(
+            "SELECT memory_id FROM memories WHERE memory_id = $1", memory_id
         )
-        row = await cursor.fetchone()
         if row is None:
             return {"error": f"Memory '{memory_id}' not found."}
 
@@ -463,9 +453,8 @@ class MemoryManager:
 
         # Delete metadata
         await db.execute(
-            "DELETE FROM memories WHERE memory_id = ?", (memory_id,)
+            "DELETE FROM memories WHERE memory_id = $1", memory_id
         )
-        await db.commit()
 
         logger.info("Memory deleted: %s", memory_id)
         return {"status": "deleted"}
@@ -476,25 +465,24 @@ class MemoryManager:
 
     async def list_memories(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         namespace: str | None = None,
         owner: str | None = None,
     ) -> list[dict[str, Any]]:
         """List memory metadata records (without fetching Walrus content)."""
         query = "SELECT * FROM memories WHERE 1=1"
-        params: list[str] = []
+        params: list[Any] = []
 
         if namespace:
-            query += " AND namespace = ?"
             params.append(namespace)
+            query += f" AND namespace = ${len(params)}"
         if owner:
-            query += " AND owner = ?"
             params.append(owner)
+            query += f" AND owner = ${len(params)}"
 
         query += " ORDER BY timestamp DESC"
 
-        cursor = await db.execute(query, params)
-        rows = await cursor.fetchall()
+        rows = await db.fetch(query, *params)
 
         return [
             {
@@ -519,21 +507,20 @@ class MemoryManager:
 
     async def save_embedding(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
         embedding: list[float] | np.ndarray,
     ) -> None:
         """Persist an embedding vector to the metadata row."""
         emb_bytes = _embedding_to_bytes(embedding)
         await db.execute(
-            "UPDATE memories SET embedding = ? WHERE memory_id = ?",
-            (emb_bytes, memory_id),
+            "UPDATE memories SET embedding = $1 WHERE memory_id = $2",
+            emb_bytes, memory_id
         )
-        await db.commit()
 
     async def get_all_records_with_embeddings(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         namespace: str | None = None,
         owner: str | None = None,
         tags: list[str] | None = None,
@@ -543,18 +530,17 @@ class MemoryManager:
         params: list[Any] = []
 
         if namespace:
-            query += " AND namespace = ?"
             params.append(namespace)
+            query += f" AND namespace = ${len(params)}"
         if owner:
-            query += " AND owner = ?"
             params.append(owner)
+            query += f" AND owner = ${len(params)}"
         if tags:
             for tag in tags:
-                query += " AND tags LIKE ?"
                 params.append(f"%{tag}%")
+                query += f" AND tags LIKE ${len(params)}"
 
-        cursor = await db.execute(query, params)
-        rows = await cursor.fetchall()
+        rows = await db.fetch(query, *params)
         return [self._row_to_record(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -562,7 +548,7 @@ class MemoryManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _row_to_record(row: aiosqlite.Row) -> MemoryRecord:
+    def _row_to_record(row: asyncpg.Record) -> MemoryRecord:
         """Convert a database row to a MemoryRecord."""
         embedding = None
         raw_emb = row["embedding"]

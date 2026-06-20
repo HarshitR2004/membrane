@@ -1,6 +1,6 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
-import aiosqlite
+import asyncpg
 
 from membrane.app import create_app
 from membrane.config import MembraneSettings
@@ -27,8 +27,8 @@ async def app_env(tmp_path):
         transport="sse",
     )
     
-    db = await aiosqlite.connect(db_path)
-    db.row_factory = aiosqlite.Row
+    db = await asyncpg.connect(db_path)
+    db.row_factory = asyncpg.Row
     await init_db_conn(db)
     
     walrus = FakeWalrusClient()

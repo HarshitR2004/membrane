@@ -22,6 +22,12 @@ src/membrane.egg-info/dependency_links.txt
 src/membrane.egg-info/entry_points.txt
 src/membrane.egg-info/requires.txt
 src/membrane.egg-info/top_level.txt
+src/membrane/api/__init__.py
+src/membrane/api/middleware.py
+src/membrane/api/routers.py
+src/membrane/api/schemas.py
+src/membrane/api/services.py
+tests/test_api.py
 tests/test_artifact_manager.py
 tests/test_memory_manager.py
 tests/test_retrieval.py

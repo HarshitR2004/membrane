@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-import aiosqlite
+import asyncpg
 
 from membrane.users import User
 from membrane.api.schemas import (
@@ -30,7 +30,7 @@ router = APIRouter()
 @router.post("/auth/connect", response_model=ConnectResponse)
 async def connect_wallet(
     req: ConnectRequest,
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     try:
         user, first_login = await AuthService.connect_wallet(db, req.wallet, req.signature, req.message)
@@ -47,7 +47,7 @@ async def connect_wallet(
 @router.post("/profile/claim-id", response_model=ClaimIdResponse)
 async def claim_membrane_id(
     req: ClaimIdRequest,
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     try:
         user = await UserService.claim_id(db, req.wallet, req.username)
@@ -61,7 +61,7 @@ async def claim_membrane_id(
 @router.post("/keys", response_model=GenerateKeyResponse)
 async def generate_key(
     req: GenerateKeyRequest,
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     from membrane.users import get_user_by_wallet
     user = await get_user_by_wallet(db, req.wallet)
@@ -74,7 +74,7 @@ async def generate_key(
 @router.get("/keys", response_model=list[APIKeyItem])
 async def list_keys(
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     return await APIKeyService.list_keys(db, user.id)
 
@@ -82,7 +82,7 @@ async def list_keys(
 async def rotate_key(
     req: RotateKeyRequest,
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     # Verify wallet belongs to user
     if user.wallet_address != req.wallet:
@@ -98,7 +98,7 @@ async def rotate_key(
 async def delete_key(
     req: DeleteKeyRequest,
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     # Verify wallet belongs to user
     if user.wallet_address != req.wallet:
@@ -123,7 +123,7 @@ async def get_profile(user: Annotated[User, Depends(get_current_user)]):
 async def get_stats(
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     from membrane.user_context import build_user_context
     from membrane.scoped_managers import ScopedMemoryManager, ScopedArtifactManager
@@ -139,7 +139,7 @@ async def get_stats(
 async def get_memories(
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)],
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     limit: int = 50,
     offset: int = 0
 ):
@@ -160,7 +160,7 @@ async def get_memories(
 async def get_artifacts(
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)],
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     limit: int = 50,
     offset: int = 0
 ):
@@ -183,7 +183,7 @@ async def get_universal_config(user: Annotated[User, Depends(get_current_user)])
 async def get_status(
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ):
     # Check Walrus & Sui
     walrus = getattr(request.app.state, "walrus", None)

@@ -1,13 +1,13 @@
-"""SQLite database initialization and connection management.
+"""PostgreSQL database initialization and connection management using asyncpg.
 
-The local database stores **metadata only** — no memory content or artifact
-bodies.  All content lives in Walrus.  SQLite serves as a fast index for
+The remote database stores **metadata only** — no memory content or artifact
+bodies. All content lives in Walrus. PostgreSQL serves as a fast index for
 namespace/owner/tag filtering and embedding-based reranking.
 """
 
 from __future__ import annotations
 
-import aiosqlite
+import asyncpg
 
 # ---------------------------------------------------------------------------
 # Schema DDL — metadata-only tables
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS memories (
     walrus_blob_id  TEXT NOT NULL,
     content_hash    TEXT NOT NULL,
     proof_id        TEXT,
-    embedding       BLOB
+    embedding       BYTEA
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key_value       TEXT,
     created_at      TEXT NOT NULL,
     last_used       TEXT NOT NULL,
-    is_active       BOOLEAN NOT NULL DEFAULT 1,
+    is_active       BOOLEAN NOT NULL DEFAULT true,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
@@ -93,13 +93,19 @@ CREATE INDEX IF NOT EXISTS idx_users_wallet ON users(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 """
 
-async def _migrate_tables(db: aiosqlite.Connection) -> None:
+async def _migrate_tables(db: asyncpg.Connection) -> None:
     """Check for and add missing columns to existing tables for backwards compatibility."""
+    
+    async def get_columns(table_name: str) -> list[str]:
+        records = await db.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = $1", 
+            table_name
+        )
+        return [r['column_name'] for r in records]
+
     # Check memories table columns
-    cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'")
-    if await cursor.fetchone():
-        cursor = await db.execute("PRAGMA table_info(memories)")
-        columns = [row[1] for row in await cursor.fetchall()]
+    columns = await get_columns('memories')
+    if columns:
         if "namespace" not in columns:
             await db.execute("ALTER TABLE memories ADD COLUMN namespace TEXT NOT NULL DEFAULT 'default'")
         if "owner" not in columns:
@@ -121,13 +127,11 @@ async def _migrate_tables(db: aiosqlite.Connection) -> None:
         if "proof_id" not in columns:
             await db.execute("ALTER TABLE memories ADD COLUMN proof_id TEXT")
         if "embedding" not in columns:
-            await db.execute("ALTER TABLE memories ADD COLUMN embedding BLOB")
+            await db.execute("ALTER TABLE memories ADD COLUMN embedding BYTEA")
 
     # Check artifacts table columns
-    cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='artifacts'")
-    if await cursor.fetchone():
-        cursor = await db.execute("PRAGMA table_info(artifacts)")
-        columns = [row[1] for row in await cursor.fetchall()]
+    columns = await get_columns('artifacts')
+    if columns:
         if "walrus_blob_id" not in columns:
             await db.execute("ALTER TABLE artifacts ADD COLUMN walrus_blob_id TEXT NOT NULL DEFAULT ''")
         if "owner" not in columns:
@@ -152,10 +156,8 @@ async def _migrate_tables(db: aiosqlite.Connection) -> None:
             await db.execute("ALTER TABLE artifacts ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
 
     # Check proofs table columns
-    cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='proofs'")
-    if await cursor.fetchone():
-        cursor = await db.execute("PRAGMA table_info(proofs)")
-        columns = [row[1] for row in await cursor.fetchall()]
+    columns = await get_columns('proofs')
+    if columns:
         if "sui_tx_hash" not in columns:
             await db.execute("ALTER TABLE proofs ADD COLUMN sui_tx_hash TEXT NOT NULL DEFAULT ''")
         if "memory_id" not in columns:
@@ -165,68 +167,60 @@ async def _migrate_tables(db: aiosqlite.Connection) -> None:
         if "created_at" not in columns:
             await db.execute("ALTER TABLE proofs ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
 
-    # Check users table for migration (making username nullable and wallet_address not null)
-    cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-    if await cursor.fetchone():
-        cursor = await db.execute("PRAGMA table_info(users)")
-        columns = await cursor.fetchall()
-        for col in columns:
-            if col[1] == "username" and col[3] == 1:
-                # username is NOT NULL, need to migrate
-                await db.execute("ALTER TABLE users RENAME TO users_old")
-                await db.executescript('''
-                    CREATE TABLE users (
-                        id              TEXT PRIMARY KEY,
-                        username        TEXT UNIQUE,
-                        wallet_address  TEXT UNIQUE NOT NULL,
-                        namespace       TEXT NOT NULL,
-                        created_at      TEXT NOT NULL,
-                        last_active     TEXT NOT NULL
-                    );
-                ''')
-                # Coalesce wallet_address to id if it's null for existing records to satisfy NOT NULL
-                await db.execute("INSERT INTO users SELECT id, username, coalesce(wallet_address, id), namespace, created_at, last_active FROM users_old")
-                await db.execute("DROP TABLE users_old")
-                # Recreate indexes
-                await db.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
-                await db.execute("CREATE INDEX IF NOT EXISTS idx_users_wallet ON users(wallet_address)")
-                break
+    # Check users table for migration
+    columns = await get_columns('users')
+    if columns:
+        # PostgreSQL specific check for NOT NULL on username
+        record = await db.fetchrow(
+            "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'username'"
+        )
+        if record and record['is_nullable'] == 'NO':
+            # Need to migrate
+            await db.execute("ALTER TABLE users RENAME TO users_old")
+            await db.execute('''
+                CREATE TABLE users (
+                    id              TEXT PRIMARY KEY,
+                    username        TEXT UNIQUE,
+                    wallet_address  TEXT UNIQUE NOT NULL,
+                    namespace       TEXT NOT NULL,
+                    created_at      TEXT NOT NULL,
+                    last_active     TEXT NOT NULL
+                );
+            ''')
+            # Coalesce wallet_address to id if it's null for existing records to satisfy NOT NULL
+            await db.execute("INSERT INTO users SELECT id, username, coalesce(wallet_address, id), namespace, created_at, last_active FROM users_old")
+            await db.execute("DROP TABLE users_old")
+            # Recreate indexes
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_users_wallet ON users(wallet_address)")
 
     # Check api_keys table columns
-    cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='api_keys'")
-    if await cursor.fetchone():
-        cursor = await db.execute("PRAGMA table_info(api_keys)")
-        columns = [row[1] for row in await cursor.fetchall()]
+    columns = await get_columns('api_keys')
+    if columns:
         if "key_value" not in columns:
             await db.execute("ALTER TABLE api_keys ADD COLUMN key_value TEXT")
 
 
-async def init_db(db_path: str) -> None:
+async def init_db(db_url: str) -> None:
     """Create database tables if they do not already exist."""
-    async with aiosqlite.connect(db_path) as db:
-        await _migrate_tables(db)
-        await db.executescript(_SCHEMA)
-        await db.commit()
+    conn = await asyncpg.connect(db_url)
+    try:
+        await _migrate_tables(conn)
+        await conn.execute(_SCHEMA)
+    finally:
+        await conn.close()
 
 
-async def init_db_conn(db: aiosqlite.Connection) -> None:
-    """Create database tables on an already-open connection.
-
-    Useful for in-memory databases in tests where each ``connect(':memory:')``
-    produces a separate, empty database.
-    """
-    await _migrate_tables(db)
-    await db.executescript(_SCHEMA)
-    await db.commit()
+async def init_db_conn(conn: asyncpg.Connection) -> None:
+    """Create database tables on an already-open connection."""
+    await _migrate_tables(conn)
+    await conn.execute(_SCHEMA)
 
 
-async def get_db(db_path: str) -> aiosqlite.Connection:
-    """Open and return an async SQLite connection.
+async def get_db(db_url: str) -> asyncpg.Connection:
+    """Open and return an asyncpg connection.
 
     The caller is responsible for closing the connection.
     """
-    db = await aiosqlite.connect(db_path)
-    db.row_factory = aiosqlite.Row
-    # Enable foreign key enforcement
-    await db.execute("PRAGMA foreign_keys = ON")
-    return db
+    conn = await asyncpg.connect(db_url)
+    return conn

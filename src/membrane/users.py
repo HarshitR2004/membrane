@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import aiosqlite
+import asyncpg
 from pydantic import BaseModel
 
 
@@ -23,8 +23,9 @@ class User(BaseModel):
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
 async def create_user(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     wallet_address: str,
     username: str | None = None,
     namespace: str | None = None,
@@ -37,11 +38,10 @@ async def create_user(
     await db.execute(
         """
         INSERT INTO users (id, username, wallet_address, namespace, created_at, last_active)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
         """,
-        (user_id, username, wallet_address, ns, now, now)
+        user_id, username, wallet_address, ns, now, now
     )
-    await db.commit()
 
     return User(
         id=user_id,
@@ -54,65 +54,61 @@ async def create_user(
 
 
 async def get_user(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     username: str,
 ) -> User | None:
     """Get a user by username or wallet address."""
-    cursor = await db.execute(
-        "SELECT * FROM users WHERE username = ? OR wallet_address = ?",
-        (username, username)
+    row = await db.fetchrow(
+        "SELECT * FROM users WHERE username = $1 OR wallet_address = $2",
+        username, username
     )
-    row = await cursor.fetchone()
     if not row:
         return None
     return User(**dict(row))
 
 
 async def get_user_by_wallet(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     wallet_address: str,
 ) -> User | None:
     """Get a user by wallet address."""
-    cursor = await db.execute(
-        "SELECT * FROM users WHERE wallet_address = ?",
-        (wallet_address,)
+    row = await db.fetchrow(
+        "SELECT * FROM users WHERE wallet_address = $1",
+        wallet_address
     )
-    row = await cursor.fetchone()
     if not row:
         return None
     return User(**dict(row))
 
 
 async def list_users(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
 ) -> list[User]:
     """List all users."""
-    cursor = await db.execute("SELECT * FROM users ORDER BY created_at DESC")
-    rows = await cursor.fetchall()
+    rows = await db.fetch("SELECT * FROM users ORDER BY created_at DESC")
     return [User(**dict(row)) for row in rows]
 
 
 async def update_last_active(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     username: str,
 ) -> None:
     """Update a user's last_active timestamp by id."""
     now = _now_iso()
     await db.execute(
-        "UPDATE users SET last_active = ? WHERE id = ? OR username = ? OR wallet_address = ?",
-        (now, username, username, username)
+        "UPDATE users SET last_active = $1 WHERE id = $2 OR username = $3 OR wallet_address = $4",
+        now, username, username, username
     )
-    await db.commit()
+
 
 async def claim_membrane_id(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     wallet_address: str,
     username: str,
 ) -> User | None:
     """Claim a human-readable username and set it as namespace."""
     await db.execute(
-        "UPDATE users SET username = ?, namespace = ? WHERE wallet_address = ?",
-        (username, username, wallet_address)
+        "UPDATE users SET username = $1, namespace = $2 WHERE wallet_address = $3",
+        username, username, wallet_address
     )
-    await db.commit()
     return await get_user_by_wallet(db, wallet_address)

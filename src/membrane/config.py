@@ -29,7 +29,7 @@ class MembraneSettings(BaseSettings):
     )
 
     # Database (metadata only)
-    db_path: str = "membrane.db"
+    database_url: str = ""
 
     # Security — auto-generated if left empty
     encryption_key: str = ""
@@ -115,9 +115,8 @@ def load_settings() -> MembraneSettings:
     # regardless of the working directory the process is started from
     # (e.g. when spawned by an MCP client like the Inspector, Claude
     # Desktop, or Cursor).
-    db_path = Path(settings.db_path)
-    if not db_path.is_absolute():
-        settings.db_path = str(_PROJECT_ROOT / db_path)
+    # (e.g. when spawned by an MCP client like the Inspector, Claude
+    # Desktop, or Cursor).
 
     settings.ensure_secrets()
     return settings

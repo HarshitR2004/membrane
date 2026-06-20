@@ -71,12 +71,8 @@ def build_user_server(
         encrypt: bool = False,
     ) -> dict[str, Any]:
         """Store a memory scoped to the current user."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
-            # Note: encrypt=encrypt logic was passed to manager.store but ScopedMemoryManager 
-            # currently needs to pass it down. Wait, ScopedMemoryManager store doesn't have encrypt parameter?
-            # We will just pass it, assuming we update ScopedMemoryManager if needed.
-            # I will ensure ScopedMemoryManager handles encrypt!
             result = await scoped_mem.manager.store(
                 db=db,
                 content=content,
@@ -105,7 +101,7 @@ def build_user_server(
     ) -> dict[str, Any]:
         """Search memories owned by or shared with the current user."""
         k = limit or settings.default_retrieval_limit
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             results = await scoped_ret.search(
                 db=db,
@@ -134,7 +130,7 @@ def build_user_server(
         relations: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Update an existing memory."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             return await scoped_mem.update(
                 db=db,
@@ -156,7 +152,7 @@ def build_user_server(
     @mcp.tool()
     async def delete_memory(memory_id: str) -> dict[str, Any]:
         """Delete a memory."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             # Basic validation: ensure it's owned by the user
             mem = await scoped_mem.get(db, memory_id)
@@ -172,17 +168,15 @@ def build_user_server(
     @mcp.tool()
     async def verify_memory(memory_id: str) -> dict[str, Any]:
         """Verify memory integrity."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             mem = await scoped_mem.get(db, memory_id)
             if not mem:
                 return {"error": "Memory not found."}
             
             walrus_blob_id = mem["walrus_blob_id"]
-            stored_hash = mem.get("content_hash", "") # Note: get() might not return content_hash, but let's query directly
             
-            cursor = await db.execute("SELECT * FROM memories WHERE memory_id = ?", (memory_id,))
-            row = await cursor.fetchone()
+            row = await db.fetchrow("SELECT * FROM memories WHERE memory_id = $1", memory_id)
             if row is None:
                 return {"error": f"Memory '{memory_id}' not found."}
             
@@ -224,7 +218,7 @@ def build_user_server(
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Store an artifact."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             result = await scoped_art.store(
                 db=db,
@@ -248,7 +242,7 @@ def build_user_server(
     @mcp.tool()
     async def get_artifact(artifact_id: str) -> dict[str, Any]:
         """Retrieve an artifact."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             result = await scoped_art.get(db, artifact_id)
             if result is None:
@@ -263,7 +257,7 @@ def build_user_server(
     @mcp.tool()
     async def list_memories() -> dict[str, Any]:
         """List stored memory metadata for the current user."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             records = await scoped_mem.list_memories(db)
             return {"memories": records, "total": len(records)}
@@ -276,7 +270,7 @@ def build_user_server(
     @mcp.tool()
     async def list_artifacts(type: str | None = None) -> dict[str, Any]:
         """List stored artifact metadata for the current user."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             records = await scoped_art.list_artifacts(db, type=type)
             return {"artifacts": records, "total": len(records)}
@@ -289,10 +283,9 @@ def build_user_server(
     @mcp.tool()
     async def inspect_memory(memory_id: str) -> dict[str, Any]:
         """Inspect a single memory's metadata and graph relations."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
-            cursor = await db.execute("SELECT * FROM memories WHERE memory_id = ?", (memory_id,))
-            row = await cursor.fetchone()
+            row = await db.fetchrow("SELECT * FROM memories WHERE memory_id = $1", memory_id)
             if not row:
                 return {"error": f"Memory '{memory_id}' not found."}
             
@@ -304,8 +297,7 @@ def build_user_server(
             if owner != context.owner and context.username not in allowed_users and visibility != "public":
                 return {"error": "Not authorized to inspect this memory."}
             
-            cursor = await db.execute("SELECT source_id, target_id, relation_type FROM memory_relations WHERE source_id = ?", (memory_id,))
-            rel_rows = await cursor.fetchall()
+            rel_rows = await db.fetch("SELECT source_id, target_id, relation_type FROM memory_relations WHERE source_id = $1", memory_id)
             relations = [{"source_id": r["source_id"], "target_id": r["target_id"], "type": r["relation_type"]} for r in rel_rows]
             
             return {
@@ -329,7 +321,7 @@ def build_user_server(
     @mcp.tool()
     async def show_graph(memory_id: str, depth: int = 1) -> dict[str, Any]:
         """Visualize the memory graph starting from a node."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             # We skip access checks here for brevity or assume they can only see graphs from their memories.
             visited_nodes = set()
@@ -342,8 +334,7 @@ def build_user_server(
                     continue
                 visited_nodes.add(current_id)
                 
-                cursor = await db.execute("SELECT source_id, target_id, relation_type FROM memory_relations WHERE source_id = ?", (current_id,))
-                rel_rows = await cursor.fetchall()
+                rel_rows = await db.fetch("SELECT source_id, target_id, relation_type FROM memory_relations WHERE source_id = $1", current_id)
                 for r in rel_rows:
                     edges.append({"source_id": r["source_id"], "target_id": r["target_id"], "type": r["relation_type"]})
                     if r["target_id"] not in visited_nodes:
@@ -351,9 +342,9 @@ def build_user_server(
             
             nodes = []
             if visited_nodes:
-                placeholders = ",".join("?" * len(visited_nodes))
-                cursor = await db.execute(f"SELECT memory_id, namespace, owner, tags FROM memories WHERE memory_id IN ({placeholders})", list(visited_nodes))
-                node_rows = await cursor.fetchall()
+                visited_list = list(visited_nodes)
+                placeholders = ",".join(f"${i+1}" for i in range(len(visited_list)))
+                node_rows = await db.fetch(f"SELECT memory_id, namespace, owner, tags FROM memories WHERE memory_id IN ({placeholders})", *visited_list)
                 nodes = [{"memory_id": r["memory_id"], "namespace": r["namespace"], "owner": r["owner"], "tags": json.loads(r["tags"])} for r in node_rows]
                 
             return {"nodes": nodes, "edges": edges}
@@ -366,10 +357,9 @@ def build_user_server(
     @mcp.tool()
     async def list_agents() -> dict[str, Any]:
         """List distinct agents (owners) in the memory layer."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
-            cursor = await db.execute("SELECT DISTINCT owner FROM memories WHERE owner != ''")
-            rows = await cursor.fetchall()
+            rows = await db.fetch("SELECT DISTINCT owner FROM memories WHERE owner != ''")
             agents = [row["owner"] for row in rows]
             return {"agents": agents}
         finally:
@@ -381,7 +371,7 @@ def build_user_server(
     @mcp.tool()
     async def list_workflows() -> dict[str, Any]:
         """List stored workflow state artifacts."""
-        db = await get_db(settings.db_path)
+        db = await get_db(settings.database_url)
         try:
             records = await scoped_art.list_artifacts(db, type="workflow")
             return {"workflows": records, "total": len(records)}

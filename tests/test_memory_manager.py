@@ -148,7 +148,7 @@ async def test_store_without_sui(db, fake_walrus, fake_sui_disabled, settings):
 
 @pytest.mark.asyncio
 async def test_no_content_in_sqlite(memory_manager, db):
-    """Verify that no content is stored in the SQLite memories table."""
+    """Verify that no content is stored in the PostgreSQL memories table."""
     result = await memory_manager.store(
         db=db, content="this should not be in sqlite"
     )

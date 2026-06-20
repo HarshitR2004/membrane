@@ -5,7 +5,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-import aiosqlite
+import asyncpg
 
 from membrane.users import User, create_user, get_user_by_wallet, claim_membrane_id
 from membrane.scoped_managers import ScopedMemoryManager, ScopedArtifactManager
@@ -15,7 +15,7 @@ def _now_iso() -> str:
 
 class AuthService:
     @staticmethod
-    async def connect_wallet(db: aiosqlite.Connection, wallet: str, signature: str, message: str) -> tuple[User, bool]:
+    async def connect_wallet(db: asyncpg.Connection, wallet: str, signature: str, message: str) -> tuple[User, bool]:
         """Connect wallet, auto-provisioning user if they don't exist."""
         # For hackathon: verify_signature is mocked
         # if not verify_signature(wallet, message, signature):
@@ -36,11 +36,11 @@ class AuthService:
 
 class UserService:
     @staticmethod
-    async def claim_id(db: aiosqlite.Connection, wallet: str, username: str) -> User:
+    async def claim_id(db: asyncpg.Connection, wallet: str, username: str) -> User:
         """Claim a Membrane ID (username)."""
         # Ensure username isn't taken
-        cursor = await db.execute("SELECT id FROM users WHERE username = ?", (username,))
-        if await cursor.fetchone():
+        row = await db.fetchrow("SELECT id FROM users WHERE username = $1", username)
+        if row:
             raise ValueError(f"Username '{username}' is already taken.")
         
         user = await claim_membrane_id(db, wallet, username)
@@ -58,7 +58,7 @@ class APIKeyService:
         return "mem_sk_" + secrets.token_urlsafe(32)
 
     @classmethod
-    async def generate_key(cls, db: aiosqlite.Connection, user_id: str, name: str) -> tuple[str, str]:
+    async def generate_key(cls, db: asyncpg.Connection, user_id: str, name: str) -> tuple[str, str]:
         """Generate a new API key and return (plaintext_key, created_at)."""
         plaintext = cls._generate_plaintext_key()
         key_hash = cls._hash_key(plaintext)
@@ -68,60 +68,54 @@ class APIKeyService:
         await db.execute(
             """
             INSERT INTO api_keys (id, user_id, name, key_hash, key_value, created_at, last_used, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true)
             """,
-            (key_id, user_id, name, key_hash, plaintext, now, now)
+            key_id, user_id, name, key_hash, plaintext, now, now
         )
-        await db.commit()
         return plaintext, now
 
     @classmethod
-    async def list_keys(cls, db: aiosqlite.Connection, user_id: str) -> list[dict]:
+    async def list_keys(cls, db: asyncpg.Connection, user_id: str) -> list[dict]:
         """List all API keys for a user."""
-        cursor = await db.execute(
-            "SELECT id, name, key_value, created_at, last_used, is_active FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
-            (user_id,)
+        rows = await db.fetch(
+            "SELECT id, name, key_value, created_at, last_used, is_active FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
+            user_id
         )
-        rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
     @classmethod
-    async def rotate_key(cls, db: aiosqlite.Connection, user_id: str, key_id: str) -> str:
+    async def rotate_key(cls, db: asyncpg.Connection, user_id: str, key_id: str) -> str:
         """Deactivate an old key and generate a new one."""
-        cursor = await db.execute("SELECT name FROM api_keys WHERE id = ? AND user_id = ?", (key_id, user_id))
-        row = await cursor.fetchone()
+        row = await db.fetchrow("SELECT name FROM api_keys WHERE id = $1 AND user_id = $2", key_id, user_id)
         if not row:
             raise ValueError("Key not found.")
-        name = row[0]
+        name = row['name']
 
-        await db.execute("UPDATE api_keys SET is_active = 0 WHERE id = ?", (key_id,))
+        await db.execute("UPDATE api_keys SET is_active = false WHERE id = $1", key_id)
         plaintext, _ = await cls.generate_key(db, user_id, name)
         return plaintext
 
     @classmethod
-    async def delete_key(cls, db: aiosqlite.Connection, user_id: str, key_id: str) -> None:
+    async def delete_key(cls, db: asyncpg.Connection, user_id: str, key_id: str) -> None:
         """Permanently delete a key."""
-        cursor = await db.execute("DELETE FROM api_keys WHERE id = ? AND user_id = ?", (key_id, user_id))
-        if cursor.rowcount == 0:
+        status = await db.execute("DELETE FROM api_keys WHERE id = $1 AND user_id = $2", key_id, user_id)
+        if status == "DELETE 0":
             raise ValueError("Key not found or not owned by user.")
-        await db.commit()
 
     @classmethod
-    async def verify_key(cls, db: aiosqlite.Connection, plaintext: str) -> str | None:
+    async def verify_key(cls, db: asyncpg.Connection, plaintext: str) -> str | None:
         """Verify key and return user_id if valid."""
         key_hash = cls._hash_key(plaintext)
-        cursor = await db.execute("SELECT user_id, id FROM api_keys WHERE key_hash = ? AND is_active = 1", (key_hash,))
-        row = await cursor.fetchone()
+        row = await db.fetchrow("SELECT user_id, id FROM api_keys WHERE key_hash = $1 AND is_active = true", key_hash)
         if row:
             now = _now_iso()
-            await db.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (now, row[1]))
-            await db.commit()
-            return row[0]
+            await db.execute("UPDATE api_keys SET last_used = $1 WHERE id = $2", now, row['id'])
+            return row['user_id']
         return None
 
 class StatsService:
     @staticmethod
-    async def get_stats(db: aiosqlite.Connection, memory_manager: ScopedMemoryManager, artifact_manager: ScopedArtifactManager) -> dict:
+    async def get_stats(db: asyncpg.Connection, memory_manager: ScopedMemoryManager, artifact_manager: ScopedArtifactManager) -> dict:
         """Get dashboard stats using scoped managers."""
         memories = await memory_manager.list_memories(db)
         artifacts = await artifact_manager.list_artifacts(db)

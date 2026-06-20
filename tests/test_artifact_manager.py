@@ -67,7 +67,7 @@ async def test_list_artifacts(artifact_manager, db):
 
 @pytest.mark.asyncio
 async def test_no_content_in_sqlite(artifact_manager, db):
-    """Verify that no content is stored in the SQLite artifacts table."""
+    """Verify that no content is stored in the PostgreSQL artifacts table."""
     result = await artifact_manager.store(
         db=db, content="this should not be in sqlite"
     )

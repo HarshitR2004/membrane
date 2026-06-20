@@ -29,7 +29,7 @@ graph TB
         AM[ArtifactManager]
         RE[RetrievalEngine]
         SEC[Security Layer]
-        DB[(SQLite<br/>metadata only)]
+        DB[(PostgreSQL<br/>metadata only)]
     end
 
     subgraph "External Services"
@@ -59,7 +59,7 @@ graph TB
 Membrane splits storage responsibilities across three distinct layers to optimize for speed, cost, and security:
 
 1. Walrus (Canonical Storage): Stores the actual heavy payload content, such as memory text, large artifacts, and agent states.
-2. SQLite (Metadata Index): Stores lightweight metadata locally, including namespace, owner, tags, blob pointers, and 384-dimensional semantic embeddings. This allows for instant retrieval and filtering without waiting on decentralized networks.
+2. PostgreSQL (Metadata Index): Stores lightweight metadata locally, including namespace, owner, tags, blob pointers, and 384-dimensional semantic embeddings. This allows for instant retrieval and filtering without waiting on decentralized networks.
 3. Sui (Verification Layer): Stores content hash proofs and transaction references directly on-chain, proving exactly when a memory was created and what its hash was.
 
 ### The Memory Manager
@@ -67,12 +67,12 @@ Membrane splits storage responsibilities across three distinct layers to optimiz
 The core orchestrator of Membrane is the Memory Manager, which coordinates the lifecycle of a memory across all three storage layers. When an agent requests to store a memory:
 1. The memory is hashed and optionally encrypted using Fernet (AES-CBC + HMAC-SHA256).
 2. The payload is uploaded to the Walrus network, returning a unique blob ID.
-3. The metadata, semantic embedding, and blob pointer are saved to the local SQLite index.
+3. The metadata, semantic embedding, and blob pointer are saved to the local PostgreSQL index.
 4. A transaction is sent to the Sui blockchain to record the cryptographic proof.
 
 ### Retrieval Engine
 
-Membrane implements a hybrid search approach for memory recall. When an agent queries its memory, the system first filters locally using the SQLite index (matching by namespace, owner, or tags). If there are multiple candidates, it performs a semantic reranking using cosine similarity on the stored vector embeddings. Only after finding the most relevant metadata does Membrane reach out to Walrus to fetch the heavy content payloads.
+Membrane implements a hybrid search approach for memory recall. When an agent queries its memory, the system first filters locally using the PostgreSQL index (matching by namespace, owner, or tags). If there are multiple candidates, it performs a semantic reranking using cosine similarity on the stored vector embeddings. Only after finding the most relevant metadata does Membrane reach out to Walrus to fetch the heavy content payloads.
 
 ### Security and Verification
 

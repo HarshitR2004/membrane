@@ -1,5 +1,5 @@
 mcp<2,>=1.27
-aiosqlite>=0.20
+asyncpg>=0.29.0
 sentence-transformers>=3.0
 numpy>=1.26
 cryptography>=43

@@ -1,7 +1,7 @@
 """Artifact Manager — orchestrates artifact lifecycle with Walrus.
 
 Stores artifact content (PDFs, reports, datasets, logs, images, etc.)
-in Walrus and maintains lightweight metadata records in SQLite.  This
+in Walrus and maintains lightweight metadata records in PostgreSQL.  This
 replaces the old ``artifacts.py`` which kept content in the database.
 """
 
@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import aiosqlite
+import asyncpg
 
 from membrane.config import MembraneSettings
 from membrane.models import ArtifactPayload, StoreArtifactResult
@@ -34,10 +34,10 @@ class ArtifactManager:
       1. Compute SHA-256 hash of content
       2. Build ``ArtifactPayload`` JSON
       3. Upload to Walrus → ``blob_id``
-      4. Save metadata in SQLite (no content)
+      4. Save metadata in PostgreSQL (no content)
 
     Read flow:
-      1. Look up metadata in SQLite
+      1. Look up metadata in PostgreSQL
       2. Fetch blob from Walrus
       3. Parse and return artifact content
     """
@@ -56,7 +56,7 @@ class ArtifactManager:
 
     async def store(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         content: str,
         owner: str | None = None,
         type: str = "artifact",
@@ -68,7 +68,7 @@ class ArtifactManager:
         tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> StoreArtifactResult:
-        """Store a new artifact in Walrus with metadata in SQLite."""
+        """Store a new artifact in Walrus with metadata in PostgreSQL."""
         artifact_id = str(uuid.uuid4())
         now = _now_iso()
         own = owner or self._settings.default_owner
@@ -100,20 +100,17 @@ class ArtifactManager:
         walrus_result = await self._walrus.store_blob(payload_bytes)
         blob_id = walrus_result.blob_id
 
-        # 4. Save metadata in SQLite
+        # 4. Save metadata in PostgreSQL
         await db.execute(
             """
             INSERT INTO artifacts
                 (artifact_id, walrus_blob_id, owner, visibility, allowed_agents, allowed_users, type, filename,
                  content_type, tags, timestamp, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             """,
-            (
-                artifact_id, blob_id, own, visibility, json.dumps(allowed_agents_list), json.dumps(allowed_users_list), type, filename,
-                content_type, json.dumps(tag_list), now, content_hash,
-            ),
+            artifact_id, blob_id, own, visibility, json.dumps(allowed_agents_list), json.dumps(allowed_users_list), type, filename,
+            content_type, json.dumps(tag_list), now, content_hash
         )
-        await db.commit()
 
         logger.info(
             "Artifact stored: id=%s blob=%s filename=%s",
@@ -132,14 +129,13 @@ class ArtifactManager:
 
     async def get(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         artifact_id: str,
     ) -> dict[str, Any] | None:
         """Retrieve an artifact by ID — fetches content from Walrus."""
-        cursor = await db.execute(
-            "SELECT * FROM artifacts WHERE artifact_id = ?", (artifact_id,)
+        row = await db.fetchrow(
+            "SELECT * FROM artifacts WHERE artifact_id = $1", artifact_id
         )
-        row = await cursor.fetchone()
         if row is None:
             return None
 
@@ -180,25 +176,24 @@ class ArtifactManager:
 
     async def list_artifacts(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         owner: str | None = None,
         type: str | None = None,
     ) -> list[dict[str, Any]]:
         """List artifact metadata records (without fetching Walrus content)."""
         query = "SELECT * FROM artifacts WHERE 1=1"
-        params: list[str] = []
+        params: list[Any] = []
 
         if owner:
-            query += " AND owner = ?"
             params.append(owner)
+            query += f" AND owner = ${len(params)}"
         if type:
-            query += " AND type = ?"
             params.append(type)
+            query += f" AND type = ${len(params)}"
 
         query += " ORDER BY timestamp DESC"
 
-        cursor = await db.execute(query, params)
-        rows = await cursor.fetchall()
+        rows = await db.fetch(query, *params)
 
         return [
             {

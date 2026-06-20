@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import aiosqlite
+import asyncpg
 from cryptography.fernet import Fernet, InvalidToken
 
 from membrane.models import ProofRecord, VerifyResult
@@ -112,7 +112,7 @@ def verify_hmac(content: str, secret: str, expected: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Proof persistence (SQLite — proofs table)
+# Proof persistence (PostgreSQL — proofs table)
 # ---------------------------------------------------------------------------
 
 def _now_iso() -> str:
@@ -120,27 +120,26 @@ def _now_iso() -> str:
 
 
 async def store_proof(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     proof_id: str,
     sui_tx_hash: str,
     memory_id: str,
     content_hash: str,
 ) -> ProofRecord:
-    """Store a Sui proof reference in the local database."""
+    """Store a Sui proof reference in the database."""
     now = _now_iso()
 
     await db.execute(
         """
         INSERT INTO proofs (proof_id, sui_tx_hash, memory_id, content_hash, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT(proof_id) DO UPDATE SET
             sui_tx_hash = excluded.sui_tx_hash,
             content_hash = excluded.content_hash,
             created_at = excluded.created_at
         """,
-        (proof_id, sui_tx_hash, memory_id, content_hash, now),
+        proof_id, sui_tx_hash, memory_id, content_hash, now
     )
-    await db.commit()
 
     return ProofRecord(
         proof_id=proof_id,
@@ -152,15 +151,14 @@ async def store_proof(
 
 
 async def get_proof(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     memory_id: str,
 ) -> ProofRecord | None:
     """Retrieve the proof record for a memory."""
-    cursor = await db.execute(
-        "SELECT * FROM proofs WHERE memory_id = ?",
-        (memory_id,),
+    row = await db.fetchrow(
+        "SELECT * FROM proofs WHERE memory_id = $1",
+        memory_id
     )
-    row = await cursor.fetchone()
     if row is None:
         return None
     return ProofRecord(
@@ -172,13 +170,12 @@ async def get_proof(
     )
 
 
-async def delete_proof(db: aiosqlite.Connection, memory_id: str) -> None:
+async def delete_proof(db: asyncpg.Connection, memory_id: str) -> None:
     """Delete the proof record for a memory."""
     await db.execute(
-        "DELETE FROM proofs WHERE memory_id = ?",
-        (memory_id,),
+        "DELETE FROM proofs WHERE memory_id = $1",
+        memory_id
     )
-    await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +183,7 @@ async def delete_proof(db: aiosqlite.Connection, memory_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 async def verify_memory_full(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     memory_id: str,
     walrus_blob_content: bytes | None,
     stored_content_hash: str,

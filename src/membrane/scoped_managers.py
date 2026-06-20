@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import aiosqlite
+    import asyncpg
     from membrane.artifact_manager import ArtifactManager
     from membrane.memory_manager import MemoryManager
     from membrane.models import StoreArtifactResult, StoreMemoryResult, UpdateMemoryResult
@@ -23,7 +23,7 @@ class ScopedMemoryManager:
 
     async def store(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         content: str,
         visibility: str = "private",
         allowed_agents: list[str] | None = None,
@@ -48,7 +48,7 @@ class ScopedMemoryManager:
 
     async def get(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
     ) -> dict[str, Any] | None:
         """Get a memory."""
@@ -61,7 +61,7 @@ class ScopedMemoryManager:
 
     async def update(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -87,7 +87,7 @@ class ScopedMemoryManager:
 
     async def delete(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         memory_id: str,
     ) -> bool:
         """Delete a memory."""
@@ -95,7 +95,7 @@ class ScopedMemoryManager:
 
     async def list_memories(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
     ) -> list[dict[str, Any]]:
         """List memories owned by the user."""
         return await self.manager.list_memories(
@@ -114,7 +114,7 @@ class ScopedArtifactManager:
 
     async def store(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         content: str,
         type: str = "artifact",
         visibility: str = "private",
@@ -142,7 +142,7 @@ class ScopedArtifactManager:
 
     async def get(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         artifact_id: str,
     ) -> dict[str, Any] | None:
         """Get an artifact."""
@@ -150,7 +150,7 @@ class ScopedArtifactManager:
 
     async def list_artifacts(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         type: str | None = None,
     ) -> list[dict[str, Any]]:
         """List artifacts owned by the user."""
@@ -170,7 +170,7 @@ class ScopedRetrievalEngine:
 
     async def search(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         walrus: WalrusClient,
         query: str,
         tags: list[str] | None = None,

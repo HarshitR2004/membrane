@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import aiosqlite
+import asyncpg
 
 from membrane.db import get_db
 from membrane.api.services import APIKeyService
@@ -12,10 +12,10 @@ from membrane.users import User, update_last_active
 
 security = HTTPBearer()
 
-async def get_db_connection(request: Request) -> aiosqlite.Connection:
+async def get_db_connection(request: Request) -> asyncpg.Connection:
     """Dependency to get DB connection from app state."""
-    db_path = request.app.state.settings.db_path
-    db = await get_db(db_path)
+    db_url = request.app.state.settings.database_url
+    db = await get_db(db_url)
     try:
         yield db
     finally:
@@ -24,7 +24,7 @@ async def get_db_connection(request: Request) -> aiosqlite.Connection:
 async def get_current_user(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
-    db: Annotated[aiosqlite.Connection, Depends(get_db_connection)]
+    db: Annotated[asyncpg.Connection, Depends(get_db_connection)]
 ) -> User:
     """Dependency to resolve User from API key."""
     token = credentials.credentials
@@ -41,8 +41,7 @@ async def get_current_user(
             detail="Invalid or inactive API Key",
         )
     
-    cursor = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    row = await cursor.fetchone()
+    row = await db.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
     if not row:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

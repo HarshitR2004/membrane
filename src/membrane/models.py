@@ -2,7 +2,7 @@
 
 Models are split into three categories:
   • Walrus payload models — serialised to JSON and stored in Walrus blobs.
-  • SQLite metadata models — lightweight records kept in the local database.
+  • PostgreSQL metadata models — lightweight records kept in the local database.
   • MCP response models   — returned to callers of MCP tools.
 """
 
@@ -67,11 +67,11 @@ class ArtifactPayload(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# SQLite metadata models (no content — content lives in Walrus)
+# PostgreSQL metadata models (no content — content lives in Walrus)
 # ---------------------------------------------------------------------------
 
 class MemoryRecord(BaseModel):
-    """Local metadata record for a memory (SQLite row)."""
+    """Local metadata record for a memory (PostgreSQL row)."""
 
     memory_id: str
     namespace: str = "default"
@@ -89,7 +89,7 @@ class MemoryRecord(BaseModel):
 
 
 class ArtifactRecord(BaseModel):
-    """Local metadata record for an artifact (SQLite row)."""
+    """Local metadata record for an artifact (PostgreSQL row)."""
 
     artifact_id: str
     walrus_blob_id: str = ""
@@ -106,7 +106,7 @@ class ArtifactRecord(BaseModel):
 
 
 class ProofRecord(BaseModel):
-    """On-chain Sui proof reference (SQLite row)."""
+    """On-chain Sui proof reference (PostgreSQL row)."""
 
     proof_id: str
     sui_tx_hash: str = ""
