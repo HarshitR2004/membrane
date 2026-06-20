@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, setWallet, setApiKey } from "@/lib/api";
+import { apiFetch, setWallet, setApiKey, getApiKey, getWallet } from "@/lib/api";
 import { ConnectModal, useCurrentAccount, useSignPersonalMessage } from "@mysten/dapp-kit";
 
 export default function LandingPage() {
@@ -17,9 +17,13 @@ export default function LandingPage() {
   useEffect(() => {
     // If the wallet connects, immediately trigger the backend authentication flow
     if (currentAccount && !loading) {
+      if (getApiKey() && getWallet() === currentAccount.address) {
+        router.push("/dashboard");
+        return;
+      }
       handleAuthFlow(currentAccount.address);
     }
-  }, [currentAccount]);
+  }, [currentAccount, loading, router]);
 
   const handleAuthFlow = async (walletAddress: string) => {
     setLoading(true);

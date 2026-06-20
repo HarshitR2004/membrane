@@ -60,6 +60,9 @@ class APIKeyService:
     @classmethod
     async def generate_key(cls, db: asyncpg.Connection, user_id: str, name: str) -> tuple[str, str]:
         """Generate a new API key and return (plaintext_key, created_at)."""
+        if name == "Dashboard Session":
+            await db.execute("DELETE FROM api_keys WHERE user_id = $1 AND name = $2", user_id, name)
+            
         plaintext = cls._generate_plaintext_key()
         key_hash = cls._hash_key(plaintext)
         key_id = str(uuid.uuid4())

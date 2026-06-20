@@ -51,7 +51,7 @@ export default function DashboardLayout({
       {/* Sidebar */}
       <aside className="w-64 border-r border-[var(--border)] bg-[var(--background)] flex flex-col z-20">
         <div className="h-20 flex items-center px-6 border-b border-[var(--border)]">
-          <Link href="/" className="font-bold text-xl uppercase tracking-tighter text-[var(--foreground)] flex items-center hover:text-[var(--primary)] transition-colors">
+          <Link href="/dashboard" className="font-bold text-xl uppercase tracking-tighter text-[var(--foreground)] flex items-center hover:text-[var(--primary)] transition-colors">
             <span className="w-5 h-5 bg-[var(--primary)] mr-3 flex-shrink-0 animate-pulse"></span>
             Membrane
           </Link>
