@@ -13,6 +13,7 @@ export default function DashboardOverview() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [keys, setKeys] = useState<APIKey[]>([]);
   const [configs, setConfigs] = useState<Config | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
   const [claimUsername, setClaimUsername] = useState("");
   const [keyName, setKeyName] = useState("");
@@ -42,6 +43,8 @@ export default function DashboardOverview() {
           window.location.href = "/";
         }
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -58,6 +61,7 @@ export default function DashboardOverview() {
         method: "POST",
         body: JSON.stringify({ wallet: getWallet(), username: claimUsername })
       });
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("profileUpdated"));
       await fetchData();
     } catch (err: any) {
       setError(err.message);
@@ -166,7 +170,9 @@ export default function DashboardOverview() {
           {/* Claim ID */}
           <div className="brutalist-card p-8">
             <h2 className="text-2xl font-bold text-[var(--foreground)] mb-6 uppercase tracking-tight">Namespace_ID</h2>
-            {profile?.username ? (
+            {isLoading ? (
+              <div className="font-mono text-sm text-[var(--secondary)] animate-pulse">LOADING_IDENTITY...</div>
+            ) : profile?.username ? (
               <div className="p-4 bg-[var(--background)] border border-[var(--border)] flex items-center justify-between">
                 <div>
                   <div className="font-mono text-xs text-[var(--secondary)] mb-1">ALLOCATED_NAMESPACE</div>
@@ -219,42 +225,48 @@ export default function DashboardOverview() {
             </form>
 
             <div className="space-y-4">
-              {keys.map(key => (
-                <div key={key.id} className={`p-5 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors ${key.is_active ? 'bg-[var(--background)] border-[var(--border)]' : 'bg-[#110505] border-[var(--accent)] opacity-60'}`}>
-                  <div className="w-full">
-                    <div className="font-bold text-[var(--foreground)] text-lg flex items-center gap-3">
-                      {key.name}
-                      {!key.is_active && <span className="font-mono text-[10px] bg-[var(--accent)] text-white px-2 py-0.5">REVOKED</span>}
-                    </div>
-                    {key.key_value && key.is_active && (
-                      <div className="font-mono text-xs text-[var(--primary)] mt-3 bg-black p-2 border border-[var(--primary)] break-all select-all">
-                        {key.key_value}
+              {isLoading ? (
+                <div className="font-mono text-sm text-[var(--secondary)] animate-pulse">LOADING_TOKENS...</div>
+              ) : (
+                <>
+                  {keys.map(key => (
+                    <div key={key.id} className={`p-5 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors ${key.is_active ? 'bg-[var(--background)] border-[var(--border)]' : 'bg-[#110505] border-[var(--accent)] opacity-60'}`}>
+                      <div className="w-full">
+                        <div className="font-bold text-[var(--foreground)] text-lg flex items-center gap-3">
+                          {key.name}
+                          {!key.is_active && <span className="font-mono text-[10px] bg-[var(--accent)] text-white px-2 py-0.5">REVOKED</span>}
+                        </div>
+                        {key.key_value && key.is_active && (
+                          <div className="font-mono text-xs text-[var(--primary)] mt-3 bg-black p-2 border border-[var(--primary)] break-all select-all">
+                            {key.key_value}
+                          </div>
+                        )}
+                        <div className="font-mono text-xs text-[var(--secondary)] mt-3">TS: {new Date(key.created_at).toLocaleDateString()}</div>
                       </div>
-                    )}
-                    <div className="font-mono text-xs text-[var(--secondary)] mt-3">TS: {new Date(key.created_at).toLocaleDateString()}</div>
-                  </div>
-                  {key.is_active && (
-                    <div className="flex gap-3 shrink-0 sm:ml-4 w-full sm:w-auto">
-                      <button 
-                        onClick={() => handleRotateKey(key.id)}
-                        className="brutalist-button-secondary text-xs flex-1 sm:flex-none"
-                      >
-                        ROTATE
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteKey(key.id)}
-                        className="text-xs font-mono font-bold border border-[var(--accent)] text-[var(--accent)] px-4 py-2 hover:bg-[var(--accent)] hover:text-white transition-colors flex-1 sm:flex-none cursor-pointer"
-                      >
-                        PURGE
-                      </button>
+                      {key.is_active && (
+                        <div className="flex gap-3 shrink-0 sm:ml-4 w-full sm:w-auto">
+                          <button 
+                            onClick={() => handleRotateKey(key.id)}
+                            className="brutalist-button-secondary text-xs flex-1 sm:flex-none"
+                          >
+                            ROTATE
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteKey(key.id)}
+                            className="text-xs font-mono font-bold border border-[var(--accent)] text-[var(--accent)] px-4 py-2 hover:bg-[var(--accent)] hover:text-white transition-colors flex-1 sm:flex-none cursor-pointer"
+                          >
+                            PURGE
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {keys.length === 0 && (
+                    <div className="p-6 border border-dashed border-[var(--secondary)] text-center font-mono text-sm text-[var(--secondary)]">
+                      // NO ACTIVE TOKENS DETECTED
                     </div>
                   )}
-                </div>
-              ))}
-              {keys.length === 0 && (
-                <div className="p-6 border border-dashed border-[var(--secondary)] text-center font-mono text-sm text-[var(--secondary)]">
-                  // NO ACTIVE TOKENS DETECTED
-                </div>
+                </>
               )}
             </div>
           </div>

@@ -21,14 +21,21 @@ export default function DashboardLayout({
       router.push("/");
     } else {
       setWallet(w);
-      // Fetch profile to get username
-      apiFetch("/profile").then(res => {
-        setUsername(res.username);
-      }).catch(() => {
-        // Handle error or invalid token
-        clearAuth();
-        router.push("/");
-      });
+      const fetchProfile = () => {
+        apiFetch("/profile").then(res => {
+          setUsername(res.username);
+        }).catch(() => {
+          // Handle error or invalid token
+          clearAuth();
+          router.push("/");
+        });
+      };
+      
+      fetchProfile();
+
+      const handleProfileUpdated = () => fetchProfile();
+      window.addEventListener("profileUpdated", handleProfileUpdated);
+      return () => window.removeEventListener("profileUpdated", handleProfileUpdated);
     }
   }, [router]);
 
