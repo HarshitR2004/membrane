@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, setWallet, setApiKey, getApiKey, getWallet } from "@/lib/api";
 import { ConnectModal, useCurrentAccount, useSignPersonalMessage } from "@mysten/dapp-kit";
+import { MembraneCore } from "@/components/MembraneCore";
+import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
+import { LiveTerminal } from "@/components/LiveTerminal";
 
 export default function LandingPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -80,6 +83,8 @@ export default function LandingPage() {
           <span className="text-xs font-mono uppercase tracking-widest text-[var(--secondary)]">SYS.STATUS: ONLINE [TESTNET]</span>
         </div>
 
+        <MembraneCore />
+
         <h1 className="text-6xl md:text-8xl font-black uppercase tracking-tighter mb-8 text-[var(--foreground)] leading-[0.9] animate-slide-up animate-delay-100">
           Universal<br/>
           <span className="text-[var(--primary)]">Compute</span> Layer
@@ -104,8 +109,11 @@ export default function LandingPage() {
         </div>
       </div>
 
+      <ArchitectureDiagram />
+      <LiveTerminal />
+
       {/* Features Row */}
-      <div className="z-10 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl w-full mt-32 text-left animate-slide-up animate-delay-400">
+      <div className="z-10 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl w-full mt-10 text-left animate-slide-up animate-delay-400">
         <div className="brutalist-card p-8">
           <div className="font-mono text-xs text-[var(--secondary)] mb-4 border-b border-[var(--border)] pb-2 uppercase tracking-widest">
             Module 01
